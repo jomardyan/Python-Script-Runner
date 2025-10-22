@@ -68,6 +68,60 @@ print_warning() {
     echo -e "${YELLOW}⚠️  $1${NC}"
 }
 
+# Auto-commit any uncommitted changes
+auto_commit_changes() {
+    local commit_message="${1:-Auto-commit uncommitted changes before release}"
+    
+    # Check if there are any uncommitted changes
+    if git diff-index --quiet HEAD -- 2>/dev/null; then
+        print_success "No uncommitted changes to commit"
+        return 0
+    fi
+    
+    print_header "Auto-committing Uncommitted Changes"
+    
+    # Check if we're in a git repository
+    if ! git rev-parse --is-inside-work-tree &> /dev/null; then
+        print_warning "Not in a git repository, skipping auto-commit"
+        return 0
+    fi
+    
+    # Get list of changed files
+    echo "Uncommitted changes detected:"
+    git status -s
+    echo ""
+    
+    # Stash current changes, commit them
+    print_warning "Automatically staging and committing changes..."
+    
+    # Add all changes
+    git add -A
+    
+    # Check if there's anything staged
+    if git diff-index --quiet --cached HEAD -- 2>/dev/null; then
+        print_warning "No changes to commit after staging"
+        return 0
+    fi
+    
+    # Configure git if needed (for CI/CD environments)
+    if ! git config user.email &> /dev/null; then
+        git config user.email "automation@localhost"
+        git config user.name "Automation Script"
+    fi
+    
+    # Commit the changes
+    if git commit -m "$commit_message" 2>&1; then
+        print_success "Auto-committed changes: $commit_message"
+        echo "Committed files:"
+        git log -1 --name-status --pretty=format:""
+        return 0
+    else
+        print_error "Failed to auto-commit changes"
+        git reset HEAD .
+        return 1
+    fi
+}
+
 show_help() {
     cat << EOF
 Python Script Runner - Release Management
@@ -77,25 +131,33 @@ INTEGRATED TOOLS:
   • release.sh    - Release orchestration (workflow integration)
   • GitHub Actions - Automated testing and publishing
 
+Features:
+  • Automatic uncommitted changes detection and commit before release
+  • Semantic versioning with major/minor/patch bumping
+  • Cross-platform executable building (Windows EXE, Linux DEB)
+  • GitHub Actions CI/CD workflow integration
+
 Usage: bash release.sh [command] [options]
 
 Commands:
   version              Show current version and latest git tag
   bump (major|minor|patch) [dry-run]
                       Bump version using version.sh (auto-updates files)
+                      ⚠️  Auto-commits any uncommitted changes before bumping
   validate            Run pre-release validation checks
   build-bundles       Build Python source bundles (tar.gz, zip)
   build-exe VER       Build Windows EXE executable using PyInstaller
   build-deb VER       Build Linux DEB package
   prepare-release VER Prepare release: update files, create git tag
+                      ⚠️  Auto-commits any uncommitted changes before preparing
   publish VER         Push tag to GitHub (triggers GitHub Actions workflow)
   help                Show this help message
 
 Workflow:
-  1. bash release.sh bump patch              # Auto-bump version
+  1. bash release.sh bump patch              # Auto-bump version (auto-commits)
   2. bash release.sh build-exe X.Y.Z         # Build Windows executable
   3. bash release.sh build-deb X.Y.Z         # Build Linux DEB package
-  4. bash release.sh prepare-release X.Y.Z   # Create and tag release
+  4. bash release.sh prepare-release X.Y.Z   # Create and tag release (auto-commits)
   5. bash release.sh publish X.Y.Z           # Push tag to GitHub
   6. GitHub Actions will auto-build and publish to PyPI & GitHub Packages
 
@@ -105,7 +167,7 @@ Options:
 
 Examples:
   bash release.sh version                    # Show current version
-  bash release.sh bump patch                 # Bump to next patch
+  bash release.sh bump patch                 # Bump to next patch (auto-commits changes)
   bash release.sh bump minor dry-run         # Preview minor bump
   bash release.sh validate                   # Run validation checks
   bash release.sh build-bundles              # Build source bundles
@@ -177,6 +239,11 @@ cmd_bump() {
     fi
     
     print_header "Automatic Version Bump ($bump_type)"
+    
+    # Auto-commit any uncommitted changes before bumping (only for actual bump, not dry-run)
+    if [ "$dry_run" != "dry-run" ]; then
+        auto_commit_changes "Auto-commit: uncommitted changes before version bump ($bump_type)"
+    fi
     
     # Check if version.sh exists
     if [ ! -f "$VERSION_SCRIPT" ]; then
@@ -463,7 +530,7 @@ SPEC_FILE
     
     # Build EXE using PyInstaller
     print_warning "Building Windows executable with PyInstaller..."
-    if ! pyinstaller --specpath dist/windows runner.spec --onefile --distpath dist/windows/dist --buildpath dist/windows/build --workpath dist/windows/build 2>&1 | grep -v "WARNING"; then
+    if ! pyinstaller --specpath dist/windows runner.spec --onefile --distpath dist/windows/dist --workpath dist/windows/build 2>&1 | grep -v "WARNING"; then
         print_error "Failed to build Windows executable"
         exit 1
     fi
@@ -654,6 +721,9 @@ cmd_prepare_release() {
     validate_version "$version" || exit 1
     
     print_header "Preparing Release v$version"
+    
+    # Auto-commit any uncommitted changes before preparation
+    auto_commit_changes "Auto-commit: uncommitted changes before release v$version"
     
     cmd_validate || exit 1
     

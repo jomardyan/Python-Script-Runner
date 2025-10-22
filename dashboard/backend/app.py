@@ -1,6 +1,7 @@
 """
 FastAPI Dashboard Backend for Python Script Runner
 Provides REST API and WebSocket for real-time metric updates
+Enhanced with additional analytics, caching, and robustness features
 """
 
 import json
@@ -8,11 +9,12 @@ import sqlite3
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
 import sys
+from functools import lru_cache
 
-from fastapi import FastAPI, WebSocket, Query, HTTPException, status
+from fastapi import FastAPI, WebSocket, Query, HTTPException, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
@@ -33,7 +35,11 @@ except ImportError as e:
     logger.error(f"Failed to import runner modules: {e}")
     raise
 
-app = FastAPI(title="Python Script Runner Dashboard API", version="1.0.0")
+app = FastAPI(
+    title="Python Script Runner Dashboard API",
+    version="2.0.0",
+    description="Real-time monitoring and analytics for Python script execution"
+)
 
 # CORS middleware to allow frontend requests
 app.add_middleware(
@@ -51,6 +57,8 @@ baseline_calculator: Optional[BaselineCalculator] = None
 connected_clients: List[WebSocket] = []
 metrics_cache: Dict[str, Any] = {}
 cache_update_task: Optional[asyncio.Task] = None
+cache_timestamp: Optional[datetime] = None
+CACHE_TTL_SECONDS = 2
 
 
 def init_managers(db_path: str = "script_runner_history.db"):
@@ -87,12 +95,137 @@ async def broadcast_metrics(data: Dict[str, Any]):
             pass
 
 
+def get_execution_statistics(limit: int = 1000) -> Dict[str, Any]:
+    """Get comprehensive execution statistics with error handling"""
+    if not history_manager:
+        return {}
+    
+    try:
+        conn = sqlite3.connect(history_manager.db_path, timeout=5.0)
+        cursor = conn.cursor()
+        
+        # Get success/failure counts
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_executions,
+                SUM(CASE WHEN exit_code = 0 THEN 1 ELSE 0 END) as successful,
+                SUM(CASE WHEN exit_code != 0 THEN 1 ELSE 0 END) as failed
+            FROM executions
+            LIMIT ?
+        """, (limit,))
+        
+        row = cursor.fetchone()
+        stats = {
+            "total_executions": row[0] or 0,
+            "successful": row[1] or 0,
+            "failed": row[2] or 0,
+            "success_rate": (row[1] or 0) / (row[0] or 1) * 100 if row[0] else 0
+        }
+        
+        conn.close()
+        return stats
+    except Exception as e:
+        logger.error(f"Error calculating statistics: {e}")
+        return {
+            "total_executions": 0,
+            "successful": 0,
+            "failed": 0,
+            "success_rate": 0
+        }
+
+
+def get_performance_metrics(metric_name: str = "execution_time_seconds", days: int = 7) -> Dict[str, Any]:
+    """Get performance metrics with aggregations"""
+    if not history_manager:
+        return {}
+    
+    try:
+        conn = sqlite3.connect(history_manager.db_path, timeout=5.0)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT 
+                MIN(metric_value) as min_value,
+                MAX(metric_value) as max_value,
+                AVG(metric_value) as avg_value,
+                COUNT(*) as count
+            FROM metrics
+            WHERE metric_name = ?
+        """, (metric_name,))
+        
+        row = cursor.fetchone()
+        if row and row[3] > 0:
+            metrics = {
+                "metric": metric_name,
+                "min": round(row[0] or 0, 3),
+                "max": round(row[1] or 0, 3),
+                "avg": round(row[2] or 0, 3),
+                "count": row[3]
+            }
+        else:
+            metrics = {
+                "metric": metric_name,
+                "min": 0,
+                "max": 0,
+                "avg": 0,
+                "count": 0
+            }
+        
+        conn.close()
+        return metrics
+    except Exception as e:
+        logger.error(f"Error getting performance metrics: {e}")
+        return {
+            "metric": metric_name,
+            "min": 0,
+            "max": 0,
+            "avg": 0,
+            "count": 0
+        }
+
+
+async def update_metrics_cache():
+    """Update metrics cache periodically with error handling"""
+    global cache_timestamp
+    while True:
+        try:
+            await asyncio.sleep(CACHE_TTL_SECONDS)
+            if history_manager:
+                try:
+                    stats = history_manager.get_database_stats()
+                    exec_stats = get_execution_statistics()
+                    perf_metrics = get_performance_metrics()
+                    
+                    global metrics_cache
+                    metrics_cache = {
+                        **stats,
+                        "execution_statistics": exec_stats,
+                        "performance_metrics": perf_metrics,
+                        "cached_at": datetime.now().isoformat()
+                    }
+                    cache_timestamp = datetime.now()
+                    
+                    if connected_clients:
+                        await broadcast_metrics(metrics_cache)
+                except Exception as e:
+                    logger.error(f"Error updating metrics cache: {e}")
+        except asyncio.CancelledError:
+            logger.info("Metrics cache update task cancelled")
+            break
+        except Exception as e:
+            logger.error(f"Unexpected error in cache update: {e}")
+            await asyncio.sleep(5)
+
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize managers on startup"""
     global cache_update_task
     try:
-        init_managers()
+        # Use root database path by default
+        from pathlib import Path
+        db_path = str(Path(__file__).parent.parent.parent / "script_runner_history.db")
+        init_managers(db_path)
         cache_update_task = asyncio.create_task(update_metrics_cache())
         logger.info("Dashboard startup complete")
     except Exception as e:
@@ -118,28 +251,6 @@ async def shutdown_event():
         logger.error(f"Shutdown error: {e}")
 
 
-async def update_metrics_cache():
-    """Update metrics cache periodically with error handling"""
-    while True:
-        try:
-            await asyncio.sleep(2)  # Update every 2 seconds
-            if history_manager:
-                try:
-                    stats = history_manager.get_database_stats()
-                    global metrics_cache
-                    metrics_cache = stats
-                    if connected_clients:
-                        await broadcast_metrics(stats)
-                except Exception as e:
-                    logger.error(f"Error updating metrics cache: {e}")
-        except asyncio.CancelledError:
-            logger.info("Metrics cache update task cancelled")
-            break
-        except Exception as e:
-            logger.error(f"Unexpected error in cache update: {e}")
-            await asyncio.sleep(5)  # Wait before retrying
-
-
 @app.websocket("/ws/metrics")
 async def websocket_metrics(websocket: WebSocket):
     """WebSocket endpoint for real-time metric streaming with error handling"""
@@ -149,14 +260,13 @@ async def websocket_metrics(websocket: WebSocket):
     
     try:
         while True:
-            # Send cached metrics every 2 seconds
             try:
                 if metrics_cache:
                     await asyncio.wait_for(
                         websocket.send_json(metrics_cache),
                         timeout=5.0
                     )
-                await asyncio.sleep(2)
+                await asyncio.sleep(CACHE_TTL_SECONDS)
             except asyncio.TimeoutError:
                 logger.warning("WebSocket send timeout, attempting to close")
                 break
@@ -191,7 +301,8 @@ async def health():
             return {
                 "status": "degraded",
                 "message": "Database not initialized",
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
+                "version": "2.0.0"
             }
         
         # Test database connection
@@ -202,21 +313,25 @@ async def health():
             return {
                 "status": "ok",
                 "timestamp": datetime.now().isoformat(),
-                "websocket_clients": len(connected_clients)
+                "websocket_clients": len(connected_clients),
+                "cache_ttl": CACHE_TTL_SECONDS,
+                "version": "2.0.0"
             }
         except sqlite3.Error as e:
             logger.error(f"Database connection error: {e}")
             return {
                 "status": "error",
                 "message": "Database connection failed",
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
+                "version": "2.0.0"
             }
     except Exception as e:
         logger.error(f"Health check error: {e}")
         return {
             "status": "error",
             "message": str(e),
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
+            "version": "2.0.0"
         }
 
 
@@ -232,16 +347,20 @@ async def get_scripts():
         cursor = conn.cursor()
         cursor.execute("""
             SELECT DISTINCT script_path, COUNT(*) as execution_count,
-                   MAX(timestamp) as last_execution
+                   MAX(created_at) as last_execution,
+                   SUM(CASE WHEN exit_code = 0 THEN 1 ELSE 0 END) as successful_runs
             FROM executions
             GROUP BY script_path
             ORDER BY last_execution DESC
         """)
         scripts = []
         for row in cursor.fetchall():
+            success_rate = (row[3] or 0) / row[1] * 100 if row[1] else 0
             scripts.append({
                 "path": row[0],
                 "execution_count": row[1],
+                "successful_runs": row[3] or 0,
+                "success_rate": round(success_rate, 2),
                 "last_execution": row[2]
             })
         conn.close()
@@ -319,28 +438,19 @@ async def get_metrics_history(
         conn = sqlite3.connect(history_manager.db_path, timeout=5.0)
         cursor = conn.cursor()
         
-        query = """
-            SELECT m.timestamp, m.value
-            FROM metrics m
-            JOIN executions e ON m.execution_id = e.id
-            WHERE m.metric_name = ?
-            AND m.timestamp >= datetime('now', ? || ' days')
-        """
-        params = [metric_name, -days]
-        
-        if script_path:
-            query += " AND e.script_path = ?"
-            params.append(script_path)
-        
-        query += " ORDER BY m.timestamp DESC LIMIT ?"
-        params.append(limit)
-        
-        cursor.execute(query, params)
+        # Simple query using just the metrics table
+        cursor.execute("""
+            SELECT metric_name, metric_value
+            FROM metrics
+            WHERE metric_name = ?
+            ORDER BY id DESC
+            LIMIT ?
+        """, (metric_name, limit))
         
         data = []
         for row in cursor.fetchall():
             data.append({
-                "timestamp": row[0],
+                "metric_name": row[0],
                 "value": row[1]
             })
         
@@ -350,7 +460,7 @@ async def get_metrics_history(
             "script_path": script_path or "all",
             "days": days,
             "data_points": len(data),
-            "data": list(reversed(data))
+            "data": data
         }
     except sqlite3.Error as e:
         logger.error(f"Database error fetching metrics history: {e}")
@@ -386,13 +496,63 @@ async def get_database_stats():
         )
 
 
+@app.get("/api/stats/execution")
+async def get_execution_stats(limit: int = Query(1000)):
+    """Get execution success/failure statistics"""
+    if not history_manager:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database not initialized"
+        )
+    
+    if limit < 1 or limit > 100000:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Limit must be between 1 and 100000"
+        )
+    
+    try:
+        stats = get_execution_statistics(limit)
+        return stats
+    except Exception as e:
+        logger.error(f"Error getting execution statistics: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@app.get("/api/stats/performance")
+async def get_performance_stats(
+    metric_name: str = Query("execution_time_seconds"),
+    days: int = Query(7)
+):
+    """Get performance metrics with aggregations"""
+    if days < 1 or days > 365:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Days must be between 1 and 365"
+        )
+    
+    try:
+        metrics = get_performance_metrics(metric_name, days)
+        return metrics
+    except Exception as e:
+        logger.error(f"Error getting performance statistics: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
 @app.get("/api/executions")
 async def get_executions(
     script_path: Optional[str] = Query(None),
     limit: int = Query(50),
-    offset: int = Query(0)
+    offset: int = Query(0),
+    exit_code: Optional[int] = Query(None)
 ):
-    """Get recent executions with error handling and validation"""
+    """Get recent executions with error handling, validation, and filtering"""
     if not history_manager:
         logger.warning("History manager not initialized for executions")
         return []
@@ -413,14 +573,18 @@ async def get_executions(
         conn = sqlite3.connect(history_manager.db_path, timeout=5.0)
         cursor = conn.cursor()
         
-        query = "SELECT id, script_path, exit_code, stdout, stderr, timestamp FROM executions"
+        query = "SELECT id, script_path, exit_code, stdout_lines, stderr_lines, created_at FROM executions WHERE 1=1"
         params = []
         
         if script_path:
-            query += " WHERE script_path = ?"
+            query += " AND script_path = ?"
             params.append(script_path)
         
-        query += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+        if exit_code is not None:
+            query += " AND exit_code = ?"
+            params.append(exit_code)
+        
+        query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
         
         cursor.execute(query, params)
@@ -431,8 +595,8 @@ async def get_executions(
                 "id": row[0],
                 "script_path": row[1],
                 "exit_code": row[2],
-                "stdout": row[3][:500] if row[3] else "",  # First 500 chars
-                "stderr": row[4][:500] if row[4] else "",
+                "stdout_lines": row[3] or 0,
+                "stderr_lines": row[4] or 0,
                 "timestamp": row[5],
                 "success": row[2] == 0
             })
@@ -447,6 +611,89 @@ async def get_executions(
         )
     except Exception as e:
         logger.error(f"Error fetching executions: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@app.get("/api/executions/failed")
+async def get_failed_executions(limit: int = Query(50), offset: int = Query(0)):
+    """Get failed executions"""
+    if not history_manager:
+        logger.warning("History manager not initialized for failed executions")
+        return []
+    
+    if limit < 1 or limit > 10000:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Limit must be between 1 and 10000"
+        )
+    
+    if offset < 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Offset cannot be negative"
+        )
+    
+    try:
+        conn = sqlite3.connect(history_manager.db_path, timeout=5.0)
+        cursor = conn.cursor()
+        
+        query = "SELECT id, script_path, exit_code, stdout_lines, stderr_lines, created_at FROM executions WHERE exit_code != 0"
+        params = []
+        
+        query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+        
+        cursor.execute(query, params)
+        
+        executions = []
+        for row in cursor.fetchall():
+            executions.append({
+                "id": row[0],
+                "script_path": row[1],
+                "exit_code": row[2],
+                "stdout_lines": row[3] or 0,
+                "stderr_lines": row[4] or 0,
+                "timestamp": row[5],
+                "success": False
+            })
+        
+        conn.close()
+        return executions
+    except sqlite3.Error as e:
+        logger.error(f"Database error fetching failed executions: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database error: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Error fetching failed executions: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@app.get("/api/metrics/available")
+async def get_available_metrics():
+    """Get list of available metric names"""
+    if not history_manager:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database not initialized"
+        )
+    
+    try:
+        conn = sqlite3.connect(history_manager.db_path, timeout=5.0)
+        cursor = conn.cursor()
+        cursor.execute("SELECT DISTINCT metric_name FROM metrics")
+        metrics = [row[0] for row in cursor.fetchall()]
+        conn.close()
+        return {"available_metrics": metrics}
+    except Exception as e:
+        logger.error(f"Error getting available metrics: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
@@ -472,11 +719,16 @@ async def serve_frontend():
         )
 
 
-def run(host: str = "0.0.0.0", port: int = 8000, db_path: str = "script_runner_history.db"):
+def run(host: str = "0.0.0.0", port: int = 8000, db_path: str = None):
     """Run the dashboard server with error handling"""
     try:
+        # Use root database by default (where runner saves data)
+        if db_path is None:
+            from pathlib import Path
+            db_path = str(Path(__file__).parent.parent.parent / "script_runner_history.db")
         init_managers(db_path)
         logger.info(f"Starting dashboard on {host}:{port}")
+        logger.info(f"Using database: {db_path}")
         uvicorn.run(app, host=host, port=port, log_level="info")
     except Exception as e:
         logger.error(f"Failed to start dashboard: {e}")
