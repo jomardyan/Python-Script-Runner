@@ -495,7 +495,7 @@ case "${1:-help}" in
         cmd_version
         ;;
     bump)
-        cmd_bump "$2" "$3"
+        cmd_bump "$2" "${3:-}"
         ;;
     validate)
         cmd_validate
