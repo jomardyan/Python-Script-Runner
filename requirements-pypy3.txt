@@ -1,0 +1,33 @@
+# PyPy3 Requirements File
+# Compatible with PyPy 3.10+
+# This file contains all dependencies for the Python Script Runner project
+
+# Core Dependencies
+psutil>=5.9.0
+requests>=2.28.0
+PyYAML>=6.0
+
+# Dashboard Backend
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+websockets==12.0
+
+# Optional Dependencies (can be commented out if not needed)
+# Email notifications support
+secure-smtplib>=0.1.1
+
+# Database drivers (if needed)
+# sqlite3 is included by default in PyPy3
+
+# Development & Testing
+pytest>=7.0.0
+pytest-cov>=4.0.0
+black>=22.0.0
+flake8>=4.0.0
+mypy>=0.900
+
+# Documentation
+mkdocs>=1.4.0
+mkdocs-material>=9.0.0
+

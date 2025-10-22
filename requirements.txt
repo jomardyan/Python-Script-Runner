@@ -1,0 +1,29 @@
+# Python Script Runner - Production Requirements
+# Pinned versions for reproducible deployments
+# Generated: October 22, 2024
+
+# Core Dependencies (required)
+psutil==5.9.7
+pyyaml==6.0.1
+requests==2.31.0
+
+# Optional: Data Export & Advanced Features
+# Uncomment to enable: pip install pyarrow scikit-learn
+# pyarrow==13.0.0  # For Parquet export
+# scikit-learn==1.3.2  # For ML features
+
+# Optional: Web Dashboard
+# Uncomment to enable: pip install fastapi uvicorn websockets
+# fastapi==0.104.1
+# uvicorn[standard]==0.24.0
+# python-multipart==0.0.6
+# websockets==12.0
+
+# Development & Testing (install separately: pip install -r requirements-dev.txt)
+# pytest>=7.0.0
+# pytest-cov>=4.0.0
+# black>=22.0.0
+# flake8>=4.0.0
+# mypy>=0.900
+# mkdocs>=1.4.0
+# mkdocs-material>=9.0.0

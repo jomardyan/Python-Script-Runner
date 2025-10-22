@@ -1,0 +1,40 @@
+site_name: Python Script Runner
+site_description: Production-grade Python script execution engine with monitoring, alerting, and analytics
+repo_url: https://github.com/jomardyan/Python-Script-Runner
+repo_name: Python-Script-Runner
+
+theme:
+  name: material
+  logo: https://img.shields.io/badge/PSR-3.0-blue
+  favicon: https://img.shields.io/badge/python-3.6+-blue
+  palette:
+    primary: blue
+    accent: blue
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Quick Start: quickstart.md
+  - Usage: usage.md
+  - CLI Reference: cli-reference.md
+  - Configuration: configuration.md
+  - CI/CD Integration: cicd.md
+  - API: api.md
+  - Metrics: metrics.md
+  - Architecture: architecture.md
+  - Advanced Features: advanced.md
+  - Troubleshooting: troubleshooting.md
+
+markdown_extensions:
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.tabbed
+  - pymdownx.tasklist
+  - tables
+  - toc

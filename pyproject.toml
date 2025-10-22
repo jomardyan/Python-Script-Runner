@@ -1,0 +1,77 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "python-script-runner"
+version = "4.0.1"
+description = "Production-grade Python script execution engine with comprehensive monitoring, alerting, analytics, and enterprise integrations"
+readme = "README.md"
+requires-python = ">=3.6"
+license = {text = "MIT"}
+authors = [
+    {name = "Python Script Runner Contributors"}
+]
+keywords = [
+    "python",
+    "script",
+    "runner",
+    "monitoring",
+    "alerting",
+    "analytics",
+    "performance",
+    "ci-cd"
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.6",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+    "Topic :: Software Development",
+    "Topic :: System :: Monitoring",
+]
+
+dependencies = [
+    "psutil>=5.9.0",
+    "pyyaml>=6.0",
+    "requests>=2.31.0",
+]
+
+[project.optional-dependencies]
+dashboard = ["fastapi>=0.104.0", "uvicorn[standard]>=0.24.0", "websockets>=12.0"]
+export = ["pyarrow>=13.0.0", "scikit-learn>=1.3.0"]
+dev = ["pytest>=7.0.0", "pytest-cov>=4.0.0", "black>=22.0.0", "flake8>=4.0.0", "mypy>=0.900"]
+docs = ["mkdocs>=1.4.0", "mkdocs-material>=9.0.0"]
+
+[project.urls]
+Homepage = "https://github.com/jomardyan/Python-Script-Runner"
+Documentation = "https://github.com/jomardyan/Python-Script-Runner#readme"
+Repository = "https://github.com/jomardyan/Python-Script-Runner.git"
+"Bug Tracker" = "https://github.com/jomardyan/Python-Script-Runner/issues"
+
+[tool.setuptools]
+packages = []
+
+[tool.black]
+line-length = 120
+target-version = ['py36', 'py37', 'py38', 'py39', 'py310', 'py311']
+
+[tool.mypy]
+python_version = "3.6"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["."]
+python_files = "test_*.py"
+addopts = "-v --tb=short"

@@ -1,0 +1,160 @@
+# Example Configuration File for Python-Script-Runner
+# Copy to config.yaml and customize for your use case
+
+# ============================================================================
+# ALERT DEFINITIONS
+# ============================================================================
+alerts:
+  # Alert on high CPU usage
+  - name: cpu_high
+    condition: cpu_max > 80
+    channels: [slack, stdout]
+    severity: WARNING
+    throttle_seconds: 300
+  
+  # Alert on memory spike (rapid increase)
+  - name: memory_spike
+    condition: memory_max_mb > 2048
+    channels: [email, slack]
+    severity: CRITICAL
+    throttle_seconds: 600
+  
+  # Alert on script timeout risk
+  - name: timeout_risk
+    condition: execution_time_seconds > 240
+    channels: [slack]
+    severity: INFO
+    throttle_seconds: 300
+  
+  # Alert on script failure
+  - name: script_failed
+    condition: exit_code != 0
+    channels: [email, slack]
+    severity: CRITICAL
+    throttle_seconds: 300
+  
+  # Alert on high page faults (potential memory issues)
+  - name: memory_pressure
+    condition: page_faults_major > 100
+    channels: [slack]
+    severity: WARNING
+    throttle_seconds: 300
+
+# ============================================================================
+# PERFORMANCE GATES FOR CI/CD
+# ============================================================================
+performance_gates:
+  # CPU max should not exceed 90%
+  - metric_name: cpu_max
+    max_value: 90
+    comparator: max
+  
+  # Memory max should not exceed 1GB
+  - metric_name: memory_max_mb
+    max_value: 1024
+    comparator: max
+  
+  # Execution time should not exceed 5 minutes
+  - metric_name: execution_time_seconds
+    max_value: 300
+    comparator: max
+  
+  # Average CPU should stay reasonable
+  - metric_name: cpu_avg
+    max_value: 60
+    comparator: avg
+
+# ============================================================================
+# NOTIFICATION CHANNEL CONFIGURATIONS
+# ============================================================================
+notifications:
+  # Slack webhook configuration
+  slack:
+    webhook_url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+    # You can use environment variables: ${SLACK_WEBHOOK_URL}
+  
+  # Email configuration (SMTP)
+  email:
+    smtp_server: "smtp.gmail.com"
+    smtp_port: 587
+    from: "alerts@example.com"
+    to:
+      - "team@example.com"
+      - "ops@example.com"
+    username: "your-email@gmail.com"
+    # Use environment variable for password: ${GMAIL_APP_PASSWORD}
+    password: "your-app-password-here"
+    use_tls: true
+  
+  # Custom webhook endpoint
+  webhook:
+    url: "https://your-monitoring-system.com/api/alerts"
+    headers:
+      Authorization: "Bearer YOUR_TOKEN_HERE"
+      Content-Type: "application/json"
+
+# ============================================================================
+# ALERT EXAMPLES FOR DIFFERENT SCENARIOS
+# ============================================================================
+
+# Example: Long-running data processing job
+# alerts:
+#   - name: processing_slow
+#     condition: execution_time_seconds > 1800  # 30 minutes
+#     channels: [slack]
+#     severity: INFO
+#     throttle_seconds: 600
+#
+#   - name: processing_memory_issue
+#     condition: memory_delta > 500  # 500MB increase
+#     channels: [email, slack]
+#     severity: WARNING
+#     throttle_seconds: 900
+
+# Example: Machine Learning training job
+# alerts:
+#   - name: gpu_underutilized
+#     condition: cpu_max < 10
+#     channels: [slack]
+#     severity: INFO
+#     throttle_seconds: 300
+#
+#   - name: training_diverging
+#     condition: execution_time_seconds > 3600 and memory_max_mb > 8192
+#     channels: [email, slack]
+#     severity: CRITICAL
+#     throttle_seconds: 300
+
+# Example: Test suite execution
+# performance_gates:
+#   - metric_name: execution_time_seconds
+#     max_value: 600  # Tests should complete in 10 minutes
+#   - metric_name: memory_max_mb
+#     max_value: 512  # Tests should not use more than 512MB
+#   - metric_name: exit_code
+#     min_value: 0  # Must succeed
+
+# ============================================================================
+# COMMON METRIC CONDITIONS
+# ============================================================================
+# Available metrics for conditions:
+# - execution_time_seconds: Total execution time
+# - exit_code: Process exit code (0 = success)
+# - success: Boolean success indicator
+# - cpu_max, cpu_avg, cpu_min: CPU usage percentages
+# - memory_max_mb, memory_avg_mb, memory_min_mb: Memory in MB
+# - user_time_seconds: User time
+# - system_time_seconds: System time
+# - page_faults_major: Major page faults (disk swaps)
+# - page_faults_minor: Minor page faults
+# - voluntary_context_switches: Context switches requested
+# - involuntary_context_switches: Context switches forced by kernel
+# - stdout_lines: Number of output lines
+# - stderr_lines: Number of error lines
+#
+# Examples of conditions:
+# - cpu_max > 80
+# - memory_max_mb > 2048
+# - execution_time_seconds > 300 and success == false
+# - page_faults_major > 50
+# - exit_code != 0
