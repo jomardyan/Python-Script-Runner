@@ -32,13 +32,94 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR"
 
+# Check if Python 3 is installed
+echo -e "${BLUE}Checking Python installation...${NC}"
+if ! command -v python3 &> /dev/null; then
+    echo -e "${RED}======================================"
+    echo "Python 3 Not Found"
+    echo "======================================${NC}"
+    echo ""
+    echo "Python 3 is required but not installed on your system."
+    echo ""
+    echo "Please install Python 3 using one of these methods:"
+    echo ""
+    echo "macOS:"
+    echo "  1. Using Homebrew (recommended):"
+    echo "     brew install python@3"
+    echo ""
+    echo "  2. Download from official website:"
+    echo "     https://www.python.org/downloads/"
+    echo ""
+    echo "  3. Using pyenv:"
+    echo "     pyenv install 3.13.0"
+    echo ""
+    echo "Linux:"
+    echo "  - Ubuntu/Debian: sudo apt-get install python3 python3-venv"
+    echo "  - Fedora: sudo dnf install python3"
+    echo "  - Arch: sudo pacman -S python"
+    echo ""
+    echo "After installing Python, run this script again: source ./setup.sh"
+    exit 1
+fi
+
+# Get Python version
+PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}')
+echo -e "${GREEN}✓ Python $PYTHON_VERSION found${NC}"
+echo ""
+
+# Check Python version (must be 3.6+)
+PYTHON_MAJOR=$(python3 -c 'import sys; print(sys.version_info[0])')
+PYTHON_MINOR=$(python3 -c 'import sys; print(sys.version_info[1])')
+
+if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 6 ]); then
+    echo -e "${RED}======================================"
+    echo "Python Version Too Old"
+    echo "======================================${NC}"
+    echo ""
+    echo "Python 3.6 or higher is required."
+    echo "Found: Python $PYTHON_VERSION"
+    echo ""
+    echo "Please upgrade Python to version 3.6 or higher."
+    exit 1
+fi
+
 # Check if virtual environment exists
 VENV_PATH=".venv"
 if [ ! -d "$VENV_PATH" ]; then
-    echo -e "${RED}Error: Virtual environment not found at $VENV_PATH${NC}"
-    echo "Please create a virtual environment first:"
-    echo "  python3 -m venv .venv"
-    exit 1
+    echo -e "${YELLOW}======================================"
+    echo "Virtual Environment Not Found"
+    echo "======================================${NC}"
+    echo ""
+    echo "A virtual environment is required to run this setup."
+    echo "Location: $VENV_PATH"
+    echo ""
+    echo -e -n "${BLUE}Would you like to create it now? [Y/n]: ${NC}"
+    read -r create_venv
+    
+    # Default to Yes if user just presses Enter
+    create_venv=${create_venv:-Y}
+    
+    if [[ "$create_venv" =~ ^[Yy]$ ]]; then
+        echo ""
+        echo -e "${BLUE}Creating virtual environment at $VENV_PATH...${NC}"
+        python3 -m venv "$VENV_PATH"
+        
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}✓ Virtual environment created successfully${NC}"
+            echo ""
+        else
+            echo -e "${RED}✗ Failed to create virtual environment${NC}"
+            echo "Please create it manually: python3 -m venv .venv"
+            exit 1
+        fi
+    else
+        echo ""
+        echo -e "${RED}Setup cancelled.${NC}"
+        echo "Please create a virtual environment manually:"
+        echo "  python3 -m venv .venv"
+        echo "Then run this script again: source ./setup.sh"
+        exit 1
+    fi
 fi
 
 # Activate virtual environment
