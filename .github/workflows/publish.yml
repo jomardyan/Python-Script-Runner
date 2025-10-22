@@ -151,7 +151,7 @@ jobs:
       - name: Publish to GitHub Packages
         if: success()
         env:
-          TWINE_REPOSITORY_URL: https://python.pkg.github.com/jomardyan
+          TWINE_REPOSITORY_URL: https://python.pkg.github.com/jomardyan/python-script-runner
           TWINE_USERNAME: ${{ github.actor }}
           TWINE_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
