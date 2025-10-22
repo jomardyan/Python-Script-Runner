@@ -22,9 +22,7 @@ try:
         HistoryManager,
         AlertManager,
         CICDIntegration,
-        PerformanceAnalyzer,
         AdvancedProfiler,
-        EnterpriseIntegration,
         __version__,
         __author__,
         __license__,
@@ -35,17 +33,15 @@ try:
         "HistoryManager",
         "AlertManager",
         "CICDIntegration",
-        "PerformanceAnalyzer",
         "AdvancedProfiler",
-        "EnterpriseIntegration",
         "__version__",
         "__author__",
         "__license__",
     ]
 except ImportError:
     # Fallback if imported as a package before installation
-    __version__ = "6.2.0"
-    __author__ = "Python Script Runner Contributors"
+    __version__ = "6.4.4"
+    __author__ = "Hayk Jomardyan"
     __license__ = "MIT"
     __all__ = []
 
