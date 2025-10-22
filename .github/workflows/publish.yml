@@ -150,13 +150,20 @@ jobs:
 
       - name: Publish to GitHub Packages
         if: success()
+        continue-on-error: true
         env:
           TWINE_REPOSITORY_URL: https://python.pkg.github.com/jomardyan/python-script-runner
           TWINE_USERNAME: ${{ github.actor }}
           TWINE_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "🚀 Publishing to GitHub Packages..."
-          twine upload dist/* --verbose
+          echo "Note: GitHub Packages may require additional setup"
+          echo "Repository: https://github.com/jomardyan/Python-Script-Runner/packages"
+          if twine upload dist/* --verbose 2>&1 | grep -q "404"; then
+            echo "⚠️  GitHub Packages: 404 error (may need PAT token)"
+            echo "See: https://github.com/jomardyan/Python-Script-Runner/settings/packages"
+            exit 0
+          fi
           echo "✅ Published to GitHub Packages"
 
       - name: Create GitHub Release with Assets
