@@ -237,10 +237,10 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
       
-      - name: Verify PyInstaller
+      - name: Verify Python and dependencies
         run: |
-          pyinstaller --version
-          pyinstaller --onefile --version
+          python --version
+          pip list | grep -i pyinstaller
       
       - name: Build Windows EXE with PyInstaller
         id: build
@@ -248,17 +248,44 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           echo "Building Windows EXE..."
+          echo "Current directory: $(pwd)"
           
+          # Debug: List current directory
+          echo "Files in current directory:"
+          ls -la | head -20
+          
+          # Check if runner.spec exists
+          if [ ! -f "runner.spec" ]; then
+            echo "ERROR: runner.spec not found in current directory"
+            echo "Listing all .spec files:"
+            find . -name "*.spec" -type f
+            exit 1
+          fi
+          
+          echo "✅ runner.spec found"
+          
+          # Create output directories
+          mkdir -p dist/windows/dist dist/windows/build
+          
+          # Run PyInstaller with full output
+          echo "Running PyInstaller..."
           pyinstaller runner.spec \
             --distpath dist/windows/dist \
-            --workpath dist/windows/build
+            --workpath dist/windows/build \
+            2>&1 || {
+              echo "❌ PyInstaller failed"
+              exit 1
+            }
           
+          # Verify output
           if [ -f "dist/windows/dist/python-script-runner.exe" ]; then
             echo "✅ Windows EXE built successfully"
             ls -lh dist/windows/dist/python-script-runner.exe
             echo "exe_path=dist/windows/dist/python-script-runner.exe" >> $GITHUB_OUTPUT
           else
-            echo "❌ Failed to build Windows EXE"
+            echo "❌ Failed to build Windows EXE - executable not found"
+            echo "Contents of dist/windows/dist:"
+            ls -lh dist/windows/dist/ || true
             exit 1
           fi
       
