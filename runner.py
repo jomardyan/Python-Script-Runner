@@ -25,9 +25,7 @@ __all__ = [
     "HistoryManager",
     "AlertManager",
     "CICDIntegration",
-    "PerformanceAnalyzer",
     "AdvancedProfiler",
-    "EnterpriseIntegration",
     "main",
 ]
 
@@ -264,7 +262,7 @@ class HistoryManager:
             self.logger.error(f"Database initialization failed: {e}")
             raise
 
-    def save_execution(self, metrics: Dict) -> int:
+    def save_execution(self, metrics: Dict) -> Optional[int]:
         """Save execution metrics to database.
         
         Persists comprehensive execution metrics including CPU, memory, execution time,
@@ -353,6 +351,9 @@ class HistoryManager:
         except Exception as e:
             self.logger.error(f"Failed to save execution: {e}")
             raise
+        
+        # This line should never be reached due to raise, but satisfies type checker
+        return None
 
     def save_alerts(self, execution_id: int, alerts: List[Dict]):
         """Save triggered alerts for an execution"""
@@ -377,7 +378,7 @@ class HistoryManager:
         except Exception as e:
             self.logger.error(f"Failed to save alerts: {e}")
 
-    def get_execution_history(self, script_path: str = None, limit: int = 100, 
+    def get_execution_history(self, script_path: Optional[str] = None, limit: int = 100, 
                              days: int = 30) -> List[Dict]:
         """Retrieve execution history with optional filtering.
         
@@ -480,7 +481,7 @@ class HistoryManager:
             self.logger.error(f"Failed to retrieve metric series: {e}")
             return []
 
-    def get_aggregated_metrics(self, script_path: str = None, metric_name: str = None,
+    def get_aggregated_metrics(self, script_path: Optional[str] = None, metric_name: Optional[str] = None,
                               days: int = 30) -> Dict:
         """Get aggregated statistics for metrics
         
@@ -598,7 +599,7 @@ class HistoryManager:
             return {}
 
     def get_executions_paginated(self, limit: int = 100, offset: int = 0, 
-                                 script_path: str = None, days: int = 30) -> Dict:
+                                 script_path: Optional[str] = None, days: int = 30) -> Dict:
         """Get paginated execution history (memory-efficient for large datasets)
         
         Args:
@@ -662,7 +663,7 @@ class HistoryManager:
             return {'data': [], 'total': 0, 'limit': limit, 'offset': offset, 'has_more': False}
 
     def get_metrics_paginated(self, limit: int = 1000, offset: int = 0,
-                             metric_name: str = None, days: int = 30) -> Dict:
+                             metric_name: Optional[str] = None, days: int = 30) -> Dict:
         """Get paginated metrics (memory-efficient for large datasets)
         
         Args:
@@ -754,7 +755,7 @@ class TrendAnalyzer:
         >>> regression = analyzer.detect_regression(values, threshold_pct=10)
     """
     
-    def __init__(self, logger: logging.Logger = None):
+    def __init__(self, logger: Optional[logging.Logger] = None):
         self.logger = logger or logging.getLogger(__name__)
     
     def calculate_linear_regression(self, values: List[float]) -> Dict:
@@ -1080,7 +1081,7 @@ class BaselineCalculator:
         >>> print(f"Baseline: {baseline['baseline']} ({baseline['method']})")
     """
     
-    def __init__(self, logger: logging.Logger = None):
+    def __init__(self, logger: Optional[logging.Logger] = None):
         self.logger = logger or logging.getLogger(__name__)
     
     def calculate_from_percentile(self, values: List[float], percentile: int = 50) -> Dict:
@@ -1302,11 +1303,11 @@ class StructuredLogger:
         >>> critical_logs = logger.get_logs(event_type='error')
     """
 
-    def __init__(self, log_file: str = None):
+    def __init__(self, log_file: Optional[str] = None):
         self.log_file = log_file
         self.logs = []
     
-    def log_event(self, event_type: str, data: Dict, timestamp: str = None) -> Dict:
+    def log_event(self, event_type: str, data: Dict, timestamp: Optional[str] = None) -> Dict:
         """Log a structured event.
         
         Args:
@@ -1345,7 +1346,7 @@ class StructuredLogger:
         
         return event
     
-    def get_logs(self, event_type: str = None, limit: int = None) -> List[Dict]:
+    def get_logs(self, event_type: Optional[str] = None, limit: Optional[int] = None) -> List[Dict]:
         """Retrieve logs with optional filtering.
         
         Args:
@@ -1425,7 +1426,7 @@ class LogAnalyzer:
         }
     }
     
-    def __init__(self, logger: logging.Logger = None):
+    def __init__(self, logger: Optional[logging.Logger] = None):
         self.logger = logger or logging.getLogger(__name__)
     
     def extract_error_patterns(self, text: str) -> Dict:
@@ -1916,7 +1917,7 @@ class TimeSeriesDB:
 class ScriptNode:
     """Represents a script node in a DAG"""
     
-    def __init__(self, script_path: str, script_args: List[str] = None, timeout: Optional[int] = None):
+    def __init__(self, script_path: str, script_args: Optional[List[str]] = None, timeout: Optional[int] = None):
         """Initialize script node
         
         Args:
@@ -1930,7 +1931,7 @@ class ScriptNode:
         self.dependencies = []  # List of script names this depends on
         self.status = "pending"  # pending, running, completed, failed
         self.result = None
-        self.execution_time = 0
+        self.execution_time: float = 0.0
     
     def add_dependency(self, script_name: str):
         """Add a dependency on another script"""
@@ -1958,8 +1959,8 @@ class ScriptWorkflow:
         self.end_time = None
         self.total_time = 0
     
-    def add_script(self, name: str, script_path: str, script_args: List[str] = None,
-                   timeout: Optional[int] = None, dependencies: List[str] = None):
+    def add_script(self, name: str, script_path: str, script_args: Optional[List[str]] = None,
+                   timeout: Optional[int] = None, dependencies: Optional[List[str]] = None):
         """Add script to workflow
         
         Args:
@@ -2054,7 +2055,7 @@ class ScriptWorkflow:
                     executable.append(name)
         return executable
     
-    def execute(self, runner: 'ScriptRunner' = None, dry_run: bool = False) -> Dict:
+    def execute(self, runner: Optional['ScriptRunner'] = None, dry_run: bool = False) -> Dict:
         """Execute workflow sequentially
         
         Args:
@@ -2521,7 +2522,7 @@ class RetentionPolicy:
 class PerformanceOptimizer:
     """Analyze metrics and provide optimization recommendations"""
     
-    def __init__(self, history_manager: 'HistoryManager' = None, logger: logging.Logger = None):
+    def __init__(self, history_manager: Optional['HistoryManager'] = None, logger: Optional[logging.Logger] = None):
         """Initialize optimizer
         
         Args:
@@ -2870,8 +2871,8 @@ class PerformanceOptimizer:
 class ScheduledTask:
     """Represents a scheduled task"""
     
-    def __init__(self, task_id: str, script_path: str, schedule: str = None,
-                 cron_expr: str = None, trigger_events: List[str] = None,
+    def __init__(self, task_id: str, script_path: str, schedule: Optional[str] = None,
+                 cron_expr: Optional[str] = None, trigger_events: Optional[List[str]] = None,
                  enabled: bool = True):
         """Initialize scheduled task
         
@@ -2889,8 +2890,8 @@ class ScheduledTask:
         self.cron_expr = cron_expr
         self.trigger_events = trigger_events or []
         self.enabled = enabled
-        self.last_run = None
-        self.next_run = None
+        self.last_run: Optional[datetime] = None
+        self.next_run: Optional[datetime] = None
         self.run_count = 0
         self.last_status = None
 
@@ -2898,7 +2899,7 @@ class ScheduledTask:
 class TaskScheduler:
     """Manages scheduled script execution and event-driven triggers"""
     
-    def __init__(self, logger: logging.Logger = None):
+    def __init__(self, logger: Optional[logging.Logger] = None):
         """Initialize scheduler
         
         Args:
@@ -2910,7 +2911,7 @@ class TaskScheduler:
         self.triggered_tasks = []
     
     def add_scheduled_task(self, task_id: str, script_path: str,
-                          schedule: str = None, cron_expr: str = None) -> ScheduledTask:
+                          schedule: Optional[str] = None, cron_expr: Optional[str] = None) -> ScheduledTask:
         """Add a scheduled task
         
         Args:
@@ -3069,7 +3070,7 @@ class TaskScheduler:
 class MLAnomalyDetector:
     """Machine learning-based anomaly detection for metrics"""
     
-    def __init__(self, logger: logging.Logger = None):
+    def __init__(self, logger: Optional[logging.Logger] = None):
         """Initialize ML detector
         
         Args:
@@ -3242,7 +3243,7 @@ class MLAnomalyDetector:
 class MetricsCorrelationAnalyzer:
     """Analyzes correlations between different metrics to identify relationships and dependencies."""
     
-    def __init__(self, logger: logging.Logger = None):
+    def __init__(self, logger: Optional[logging.Logger] = None):
         """Initialize metrics correlation analyzer
         
         Args:
@@ -3556,7 +3557,7 @@ class MetricsCorrelationAnalyzer:
 class BenchmarkManager:
     """Manage performance benchmarks and detect regressions between versions."""
     
-    def __init__(self, logger: logging.Logger = None):
+    def __init__(self, logger: Optional[logging.Logger] = None):
         """Initialize benchmark manager
         
         Args:
@@ -3614,8 +3615,8 @@ class BenchmarkManager:
         except Exception as e:
             self.logger.error(f"Error initializing benchmark DB: {e}")
     
-    def create_benchmark(self, benchmark_name: str, script_path: str = None, 
-                        version_id: str = None, notes: str = None) -> Dict:
+    def create_benchmark(self, benchmark_name: str, script_path: Optional[str] = None, 
+                        version_id: Optional[str] = None, notes: Optional[str] = None) -> Dict:
         """Create a performance benchmark from current metrics
         
         Args:
@@ -3628,7 +3629,7 @@ class BenchmarkManager:
             Dictionary with benchmark creation result
         """
         try:
-            version_id = version_id or datetime.datetime.now().isoformat()
+            version_id = version_id or datetime.now().isoformat()
             
             # Get current metrics from main database
             conn = sqlite3.connect(self.db_path)
@@ -3873,7 +3874,7 @@ class BenchmarkManager:
             self.logger.error(f"Error detecting regressions: {e}")
             return {"status": "error", "error": str(e)}
     
-    def list_benchmarks(self, benchmark_name: str = None) -> Dict:
+    def list_benchmarks(self, benchmark_name: Optional[str] = None) -> Dict:
         """List all benchmarks or versions of a specific benchmark
         
         Args:
@@ -3939,7 +3940,7 @@ class BenchmarkManager:
 class AlertIntelligence:
     """Intelligent alert management with auto-tuning, deduplication, and context-aware routing."""
     
-    def __init__(self, logger: logging.Logger = None):
+    def __init__(self, logger: Optional[logging.Logger] = None):
         """Initialize alert intelligence system
         
         Args:
@@ -4009,7 +4010,7 @@ class AlertIntelligence:
                 # Check if similar alert exists in history
                 found_duplicate = False
                 for hist_alert in self.alert_history.get(alert_key, []):
-                    time_diff = (datetime.datetime.now() - hist_alert.get('timestamp', datetime.datetime.now())).total_seconds()
+                    time_diff = (datetime.now() - hist_alert.get('timestamp', datetime.now())).total_seconds()
                     
                     if time_diff < time_window_seconds:
                         found_duplicate = True
@@ -4024,7 +4025,7 @@ class AlertIntelligence:
                         self.alert_history[alert_key] = []
                     
                     alert_copy = alert.copy()
-                    alert_copy['timestamp'] = datetime.datetime.now()
+                    alert_copy['timestamp'] = datetime.now()
                     self.alert_history[alert_key].append(alert_copy)
             
             return deduplicated
@@ -4093,7 +4094,7 @@ class AlertIntelligence:
                 (metric_name, lower_threshold, upper_threshold, tuning_method, confidence, last_tuned, sample_count)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (metric_name, lower, upper, method, confidence, 
-                  datetime.datetime.now().isoformat(), len(metric_history)))
+                  datetime.now().isoformat(), len(metric_history)))
             
             conn.commit()
             conn.close()
@@ -4195,7 +4196,7 @@ class AlertIntelligence:
         else:
             return "Alert patterns appear normal"
     
-    def suggest_alert_routing(self, alert: Dict, team_policies: Dict = None) -> Dict:
+    def suggest_alert_routing(self, alert: Dict, team_policies: Optional[Dict] = None) -> Dict:
         """Suggest intelligent routing for an alert based on context
         
         Args:
@@ -4252,7 +4253,7 @@ class AlertIntelligence:
 class AdvancedProfiler:
     """Advanced CPU/memory/I/O profiling with call stack and system call tracing."""
     
-    def __init__(self, logger: logging.Logger = None):
+    def __init__(self, logger: Optional[logging.Logger] = None):
         """Initialize advanced profiler
         
         Args:
@@ -4429,7 +4430,7 @@ class AdvancedProfiler:
             self.logger.error(f"Error profiling I/O: {e}")
             return {"status": "error", "error": str(e)}
     
-    def get_profile_summary(self, profile_id: str = None) -> Dict:
+    def get_profile_summary(self, profile_id: Optional[str] = None) -> Dict:
         """Get summary of profiling results
         
         Args:
@@ -4461,7 +4462,7 @@ class AdvancedProfiler:
 class EnterpriseIntegrations:
     """Integrate with enterprise monitoring platforms (DataDog, New Relic, Prometheus, etc)."""
     
-    def __init__(self, logger: logging.Logger = None):
+    def __init__(self, logger: Optional[logging.Logger] = None):
         """Initialize enterprise integrations
         
         Args:
@@ -4469,8 +4470,8 @@ class EnterpriseIntegrations:
         """
         self.logger = logger or logging.getLogger(__name__)
     
-    def send_to_datadog(self, metric_name: str, value: float, tags: Dict = None,
-                       api_key: str = None) -> Dict:
+    def send_to_datadog(self, metric_name: str, value: float, tags: Optional[Dict] = None,
+                       api_key: Optional[str] = None) -> Dict:
         """Send metrics to Datadog
         
         Args:
@@ -4512,7 +4513,7 @@ class EnterpriseIntegrations:
             return {"status": "error", "error": str(e)}
     
     def send_to_prometheus(self, metric_name: str, value: float, 
-                          pushgateway_url: str = None) -> Dict:
+                          pushgateway_url: Optional[str] = None) -> Dict:
         """Send metrics to Prometheus via Pushgateway
         
         Args:
@@ -4544,8 +4545,8 @@ class EnterpriseIntegrations:
             self.logger.error(f"Error sending to Prometheus: {e}")
             return {"status": "error", "error": str(e)}
     
-    def send_to_newrelic(self, metric_name: str, value: float, account_id: str = None,
-                        api_key: str = None) -> Dict:
+    def send_to_newrelic(self, metric_name: str, value: float, account_id: Optional[str] = None,
+                        api_key: Optional[str] = None) -> Dict:
         """Send metrics to New Relic
         
         Args:
@@ -4612,7 +4613,7 @@ class EnterpriseIntegrations:
 class ResourceForecaster:
     """Predict future resource needs and forecast SLA compliance."""
     
-    def __init__(self, logger: logging.Logger = None):
+    def __init__(self, logger: Optional[logging.Logger] = None):
         """Initialize resource forecaster
         
         Args:
@@ -4820,7 +4821,7 @@ class RemoteExecutor:
     to prevent injection attacks.
     """
     
-    def __init__(self, logger: logging.Logger = None):
+    def __init__(self, logger: Optional[logging.Logger] = None):
         """Initialize remote executor
         
         Args:
@@ -4896,8 +4897,8 @@ class RemoteExecutor:
         import shlex
         return shlex.quote(arg)
     
-    def execute_ssh(self, host: str, script_path: str, args: List[str] = None,
-                   username: str = None, key_file: str = None,
+    def execute_ssh(self, host: str, script_path: str, args: Optional[List[str]] = None,
+                   username: Optional[str] = None, key_file: Optional[str] = None,
                    timeout: int = 300) -> Dict:
         """Execute script on remote host via SSH with input validation
         
@@ -5001,8 +5002,8 @@ class RemoteExecutor:
                 "message": error_msg
             }
     
-    def execute_docker(self, image: str, script_path: str, args: List[str] = None,
-                      container_name: str = None, env_vars: Dict = None,
+    def execute_docker(self, image: str, script_path: str, args: Optional[List[str]] = None,
+                      container_name: Optional[str] = None, env_vars: Optional[Dict] = None,
                       timeout: int = 300) -> Dict:
         """Execute script in Docker container with input validation
         
@@ -5163,8 +5164,8 @@ class RetryConfig:
     
     def __init__(self, max_attempts: int = 3, strategy: str = "exponential",
                  initial_delay: float = 1.0, max_delay: float = 60.0,
-                 multiplier: float = 2.0, retry_on_errors: List[str] = None,
-                 skip_on_errors: List[str] = None, max_total_time: float = 300.0):
+                 multiplier: float = 2.0, retry_on_errors: Optional[List[str]] = None,
+                 skip_on_errors: Optional[List[str]] = None, max_total_time: float = 300.0):
         """
         Args:
             max_attempts: Maximum number of retry attempts
@@ -5220,7 +5221,7 @@ class RetryConfig:
         # Cap at max_delay
         return min(delay, self.max_delay)
     
-    def should_retry(self, error: Exception, exit_code: int, total_time: float,
+    def should_retry(self, error: Optional[Exception], exit_code: int, total_time: float,
                      attempt: int) -> bool:
         """Determine if retry should be attempted
         
@@ -5340,7 +5341,7 @@ class AlertManager:
         self.logger = logging.getLogger(__name__)
     
     @staticmethod
-    def _get_credential(credential_name: str, default: str = None) -> str:
+    def _get_credential(credential_name: Optional[str], default: Optional[str] = None) -> str:
         """Securely retrieve credential from environment variable
         
         SECURITY FIX: Load credentials from environment instead of storing plaintext
@@ -5356,6 +5357,11 @@ class AlertManager:
         Example:
             webhook = AlertManager._get_credential('SLACK_WEBHOOK')
         """
+        if not credential_name:
+            if default:
+                return default
+            raise ValueError("Credential name cannot be None or empty")
+        
         value = os.environ.get(credential_name)
         if not value and default:
             return default
@@ -5404,9 +5410,9 @@ class AlertManager:
         self.alerts.append(alert)
         self.logger.info(f"Alert added: {name} ({severity})")
 
-    def configure_email(self, smtp_server: str = None, smtp_port: int = None, 
-                       from_addr: str = None, to_addrs: List[str] = None, 
-                       username: str = None, password: str = None,
+    def configure_email(self, smtp_server: Optional[str] = None, smtp_port: Optional[int] = None, 
+                       from_addr: Optional[str] = None, to_addrs: Optional[List[str]] = None, 
+                       username: Optional[str] = None, password: Optional[str] = None,
                        use_tls: bool = True, env_prefix: str = 'EMAIL_'):
         """Configure email notifications with secure credential handling
         
@@ -5452,7 +5458,7 @@ class AlertManager:
         }
         self.logger.info("Email notifications configured from environment variables")
 
-    def configure_slack(self, webhook_url: str = None, env_var: str = 'SLACK_WEBHOOK_URL'):
+    def configure_slack(self, webhook_url: Optional[str] = None, env_var: Optional[str] = 'SLACK_WEBHOOK_URL'):
         """Configure Slack webhook notifications with secure credential handling
         
         SECURITY FIX: Load webhook URL from environment variable instead of hardcoding
@@ -5483,8 +5489,8 @@ class AlertManager:
         self.notification_config['slack'] = {'webhook_url': webhook_url}
         self.logger.info("Slack notifications configured from environment variable")
 
-    def configure_webhook(self, url: str = None, headers: Dict = None, 
-                         env_var: str = 'WEBHOOK_URL'):
+    def configure_webhook(self, url: Optional[str] = None, headers: Optional[Dict] = None, 
+                         env_var: Optional[str] = 'WEBHOOK_URL'):
         """Configure custom webhook notifications with secure credential handling
         
         SECURITY FIX: Load URL from environment variable, support auth tokens
@@ -5631,11 +5637,14 @@ Key Metrics:
             }]
         }
 
-        response = requests.post(config['webhook_url'], json=payload, timeout=10)
-        if response.status_code != 200:
-            self.logger.error(f"Slack alert failed: {response.status_code}")
+        if requests:
+            response = requests.post(config['webhook_url'], json=payload, timeout=10)
+            if response.status_code != 200:
+                self.logger.error(f"Slack alert failed: {response.status_code}")
+            else:
+                self.logger.info(f"Slack alert sent for: {alert.name}")
         else:
-            self.logger.info(f"Slack alert sent for: {alert.name}")
+            self.logger.warning("requests library not available for Slack alert")
 
     def _send_webhook_alert(self, alert: Alert, alert_data: Dict):
         """Send custom webhook alert"""
@@ -5644,17 +5653,20 @@ Key Metrics:
             self.logger.warning("Webhook not configured")
             return
 
-        response = requests.post(
-            config['url'],
-            json=alert_data,
-            headers=config.get('headers', {}),
-            timeout=10
-        )
+        if requests:
+            response = requests.post(
+                config['url'],
+                json=alert_data,
+                headers=config.get('headers', {}),
+                timeout=10
+            )
 
-        if response.status_code not in [200, 201, 202]:
-            self.logger.error(f"Webhook alert failed: {response.status_code}")
+            if response.status_code not in [200, 201, 202]:
+                self.logger.error(f"Webhook alert failed: {response.status_code}")
+            else:
+                self.logger.info(f"Webhook alert sent for: {alert.name}")
         else:
-            self.logger.info(f"Webhook alert sent for: {alert.name}")
+            self.logger.warning("requests library not available for webhook alert")
 
     def _print_alert(self, alert: Alert, alert_data: Dict):
         """Print alert to stdout"""
@@ -5677,7 +5689,7 @@ Key Metrics:
 class PerformanceGate:
     """Performance gate for CI/CD integration"""
 
-    def __init__(self, metric_name: str, max_value: float = None, min_value: float = None,
+    def __init__(self, metric_name: str, max_value: Optional[float] = None, min_value: Optional[float] = None,
                  comparator: str = 'max'):
         self.metric_name = metric_name
         self.max_value = max_value
@@ -5711,8 +5723,8 @@ class CICDIntegration:
         self.junit_output = False
         self.logger = logging.getLogger(__name__)
 
-    def add_performance_gate(self, metric_name: str, max_value: float = None, 
-                            min_value: float = None, comparator: str = 'max'):
+    def add_performance_gate(self, metric_name: str, max_value: Optional[float] = None, 
+                            min_value: Optional[float] = None, comparator: str = 'max'):
         """Add a performance gate
 
         Example:
@@ -5810,7 +5822,7 @@ class CICDIntegration:
 
         self.logger.info(f"JUnit XML report saved to {output_file}")
 
-    def generate_tap_output(self, gate_results: List[str], output_file: str = None) -> str:
+    def generate_tap_output(self, gate_results: List[str], output_file: Optional[str] = None) -> str:
         """Generate TAP (Test Anything Protocol) format output for CI systems
         
         TAP is a lightweight format supported by many CI systems.
@@ -6157,8 +6169,8 @@ class ScriptRunner:
     """
 
     def __init__(self, script_path: str, script_args: Optional[List[str]] = None,
-                 timeout: Optional[int] = None, log_level: str = 'INFO', config_file: str = None,
-                 history_db: str = None, enable_history: bool = True) -> None:
+                 timeout: Optional[int] = None, log_level: Optional[str] = 'INFO', config_file: Optional[str] = None,
+                 history_db: Optional[str] = None, enable_history: bool = True) -> None:
         """Initialize ScriptRunner with configuration.
         
         Args:
@@ -6218,7 +6230,7 @@ class ScriptRunner:
 
         # Setup logging
         self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(getattr(logging, log_level.upper()))
+        self.logger.setLevel(getattr(logging, (log_level or 'INFO').upper()))
         if not self.logger.handlers:
             handler = logging.StreamHandler()
             formatter = logging.Formatter('[%(levelname)s] %(message)s')
@@ -6550,7 +6562,7 @@ class ScriptRunner:
             if self.history_manager:
                 try:
                     execution_id = self.history_manager.save_execution(self.metrics)
-                    if self.alert_manager.alert_history:
+                    if execution_id is not None and self.alert_manager.alert_history:
                         self.history_manager.save_alerts(execution_id, self.alert_manager.alert_history)
                 except Exception as e:
                     self.logger.warning(f"Failed to save to history database: {e}")
