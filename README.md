@@ -22,7 +22,7 @@ pip install python-script-runner
 ### Basic Usage
 
 ```bash
-# Simple execution
+# Simple execution - automatically shows detailed metrics
 python -m runner myscript.py
 
 # With performance monitoring
@@ -34,6 +34,19 @@ python -m runner script.py --slack-webhook "YOUR_WEBHOOK_URL"
 # As CLI command
 python-script-runner myscript.py
 ```
+
+### 📊 Default Output - Comprehensive Metrics Report
+
+Every run automatically displays a detailed metrics report with:
+
+- **📋 Script Information** - path, execution status, exit code
+- **⏱️ Execution Timing** - start time, end time, total duration, CPU user/system time
+- **💻 CPU Metrics** - maximum, average, and minimum CPU usage, context switches
+- **🧠 Memory Metrics** - peak memory, average usage, minimum baseline, page faults
+- **⚙️ System Metrics** - active threads, file descriptors, block I/O operations
+- **📤 Output Metrics** - stdout and stderr line counts
+
+No configuration needed - just run and get full observability by default!
 
 ### Python Code
 
