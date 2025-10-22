@@ -11,11 +11,25 @@ Supports:
     - python setup.py test (run tests)
     - python setup.py sdist (create source distribution)
     - python setup.py bdist_wheel (create wheel distribution)
+    - python setup.py py2app (create macOS app bundle)
 """
 
 from setuptools import setup
 import os
 import re
+import sys
+
+# Ensure we're in a virtual environment
+if not hasattr(sys, 'real_prefix') and not (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix):
+    print("Warning: Not running in a virtual environment. It's recommended to use a virtual environment.")
+    print("You can create one with: python -m venv .venv && source .venv/bin/activate")
+
+# Check if py2app is available
+try:
+    import py2app
+    HAS_PY2APP = True
+except ImportError:
+    HAS_PY2APP = False
 
 # Read version from runner.py
 with open(os.path.join(os.path.dirname(__file__), "runner.py")) as f:
@@ -26,6 +40,31 @@ with open(os.path.join(os.path.dirname(__file__), "runner.py")) as f:
 readme_file = os.path.join(os.path.dirname(__file__), "README.md")
 with open(readme_file, encoding="utf-8") as f:
     long_description = f.read()
+
+# py2app options for macOS app bundle
+APP = ['__main__.py']
+DATA_FILES = []
+OPTIONS = {
+    'argv_emulation': False,  # Disable for command-line apps to avoid Carbon framework dependency
+    'packages': [
+        'psutil', 'yaml', 'requests', 'pkg_resources', 'setuptools',
+        'sqlite3', 'json', 'logging', 'collections', 'functools'
+    ],
+    'includes': [
+        'jaraco.text', 'pkg_resources.py2_warn', 'setuptools._vendor.jaraco.text'
+    ],
+    'excludes': ['tkinter', 'unittest', 'pdb', 'pydoc', 'test', 'tests', 'jaraco'],
+    'iconfile': None,  # Could add an icon later
+    'plist': {
+        'CFBundleName': 'Python Script Runner',
+        'CFBundleDisplayName': 'Python Script Runner',
+        'CFBundleGetInfoString': "Python Script Runner",
+        'CFBundleIdentifier': "com.python-script-runner.app",
+        'CFBundleVersion': version,
+        'CFBundleShortVersionString': version,
+        'NSHumanReadableCopyright': u"Copyright © 2025, Python Script Runner Contributors, MIT License"
+    }
+}
 
 setup(
     name="python-script-runner",
@@ -75,6 +114,11 @@ setup(
             "python-script-runner=runner:main",
         ],
     },
+    # py2app configuration
+    app=APP if HAS_PY2APP else None,
+    data_files=DATA_FILES if HAS_PY2APP else [],
+    options={'py2app': OPTIONS} if HAS_PY2APP else {},
+    setup_requires=['py2app'] if HAS_PY2APP else [],
     keywords=[
         "python",
         "script",

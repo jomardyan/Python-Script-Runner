@@ -8214,6 +8214,52 @@ Examples:
         print(f"  Stdout Lines: {metrics.get('stdout_lines', 0)}")
         print(f"  Stderr Lines: {metrics.get('stderr_lines', 0)}")
         
+        # Script Output Section
+        if stdout or stderr:
+            print("\n" + "="*80)
+            print("▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ 📝  S C R I P T    O U T P U T  📝 ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌")
+            print("="*80)
+            if stdout:
+                print("\n╔════════════════════════════════════════════════════════════════════════════════╗")
+                print("║ STDOUT OUTPUT                                                                  ║")
+                print("╚════════════════════════════════════════════════════════════════════════════════╝")
+                # Show first and last lines if output is long, otherwise show all
+                stdout_lines_list = stdout.strip().split('\n') if stdout.strip() else []
+                if len(stdout_lines_list) > 20:
+                    # Print first 10 lines with box drawing
+                    for i, line in enumerate(stdout_lines_list[:10]):
+                        print(f"  │ {line[:76]}")
+                    # Print ellipsis section
+                    hidden_count = len(stdout_lines_list) - 20
+                    print(f"  ├─ ┈ ┈ ┈ ┈ ┈ [{hidden_count:,} more lines hidden] ┈ ┈ ┈ ┈ ┈ ─┤")
+                    # Print last 10 lines
+                    for i, line in enumerate(stdout_lines_list[-10:]):
+                        print(f"  │ {line[:76]}")
+                else:
+                    for line in stdout_lines_list:
+                        print(f"  │ {line[:76]}")
+                print("  └" + "─"*78 + "┘")
+            
+            if stderr:
+                print("\n╔════════════════════════════════════════════════════════════════════════════════╗")
+                print("║ STDERR OUTPUT                                                                  ║")
+                print("╚════════════════════════════════════════════════════════════════════════════════╝")
+                stderr_lines_list = stderr.strip().split('\n') if stderr.strip() else []
+                if len(stderr_lines_list) > 20:
+                    # Print first 10 lines with box drawing
+                    for i, line in enumerate(stderr_lines_list[:10]):
+                        print(f"  ⚠ {line[:76]}")
+                    # Print ellipsis section
+                    hidden_count = len(stderr_lines_list) - 20
+                    print(f"  ├─ ┈ ┈ ┈ ┈ ┈ [{hidden_count:,} more lines hidden] ┈ ┈ ┈ ┈ ┈ ─┤")
+                    # Print last 10 lines
+                    for i, line in enumerate(stderr_lines_list[-10:]):
+                        print(f"  ⚠ {line[:76]}")
+                else:
+                    for line in stderr_lines_list:
+                        print(f"  ⚠ {line[:76]}")
+                print("  └" + "─"*78 + "┘")
+        
         # Timeout Information (if applicable)
         if metrics.get('timeout_seconds'):
             print("\n⏰ TIMEOUT CONFIGURATION")
