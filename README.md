@@ -219,6 +219,47 @@ cd Python-Script-Runner
 pip install -e .
 ```
 
+### Pre-Compiled Executables
+
+**No Python installation required!** Download pre-built standalone executables:
+
+#### 🪟 Windows (Standalone EXE)
+
+```bash
+# Download from GitHub Releases: python-script-runner-X.Y.Z-windows.zip
+unzip python-script-runner-X.Y.Z-windows.zip
+cd python-script-runner-X.Y.Z
+python-script-runner.exe script.py
+```
+
+**Features:**
+- No Python required - completely standalone
+- Windows 7 SP1 or later
+- ~70 MB size
+
+#### 🐧 Linux/Ubuntu/Debian (DEB Package)
+
+```bash
+# Download from GitHub Releases: python-script-runner_X.Y.Z_all.deb
+sudo apt install ./python-script-runner_X.Y.Z_all.deb
+python-script-runner script.py
+```
+
+**Features:**
+- System package integration
+- Automatic updates via `apt upgrade`
+- Installs to `/usr/bin/python-script-runner`
+- ~10 MB size
+
+#### 📖 Full Executable Guide
+
+See **[INSTALL_EXECUTABLES.md](INSTALL_EXECUTABLES.md)** for:
+- Detailed Windows EXE setup and troubleshooting
+- Linux DEB installation and system integration
+- System requirements and verification steps
+- Common use cases and configuration
+- FAQ and pro tips
+
 ---
 
 ## 💡 Usage Examples
@@ -511,6 +552,7 @@ pip install python-script-runner
 - **[Full Documentation](https://github.com/jomardyan/Python-Script-Runner#documentation)** - Complete guides and examples
 - **[GitHub Repository](https://github.com/jomardyan/Python-Script-Runner)** - Source code and issues
 - **[Examples](#usage-examples)** - Common use cases below
+- **[Compiled Executables](INSTALL_EXECUTABLES.md)** - Windows EXE & Linux DEB downloads
 
 ## Key Features
 

@@ -84,15 +84,20 @@ Commands:
   bump (major|minor|patch) [dry-run]
                       Bump version using version.sh (auto-updates files)
   validate            Run pre-release validation checks
+  build-bundles       Build Python source bundles (tar.gz, zip)
+  build-exe VER       Build Windows EXE executable using PyInstaller
+  build-deb VER       Build Linux DEB package
   prepare-release VER Prepare release: update files, create git tag
   publish VER         Push tag to GitHub (triggers GitHub Actions workflow)
   help                Show this help message
 
 Workflow:
   1. bash release.sh bump patch              # Auto-bump version
-  2. bash release.sh prepare-release X.Y.Z   # Create and tag release
-  3. bash release.sh publish X.Y.Z           # Push tag to GitHub
-  4. GitHub Actions will auto-build and publish to PyPI & GitHub Packages
+  2. bash release.sh build-exe X.Y.Z         # Build Windows executable
+  3. bash release.sh build-deb X.Y.Z         # Build Linux DEB package
+  4. bash release.sh prepare-release X.Y.Z   # Create and tag release
+  5. bash release.sh publish X.Y.Z           # Push tag to GitHub
+  6. GitHub Actions will auto-build and publish to PyPI & GitHub Packages
 
 Options:
   X.Y.Z             Version in semantic versioning format
@@ -103,11 +108,16 @@ Examples:
   bash release.sh bump patch                 # Bump to next patch
   bash release.sh bump minor dry-run         # Preview minor bump
   bash release.sh validate                   # Run validation checks
+  bash release.sh build-bundles              # Build source bundles
+  bash release.sh build-exe 6.3.0            # Build Windows EXE
+  bash release.sh build-deb 6.3.0            # Build Linux DEB
   bash release.sh prepare-release 6.3.0      # Prepare v6.3.0 release
   bash release.sh publish 6.3.0              # Trigger GitHub Actions
 
 Integration Points:
   • version.sh is used for version management
+  • PyInstaller for Windows EXE compilation
+  • dpkg-deb for Linux DEB packaging
   • GitHub Actions triggers on tag push (v*)
   • PyPI_API_TOKEN secret required in GitHub Secrets
   • GITHUB_TOKEN auto-provided for GitHub Packages
@@ -363,6 +373,275 @@ INSTALL_SCRIPT
     print_success "Checksums created"
 }
 
+cmd_build_exe() {
+    local version=$1
+    
+    if [ -z "$version" ]; then
+        print_error "Version required"
+        echo "Usage: bash release.sh build-exe VERSION"
+        exit 1
+    fi
+    
+    validate_version "$version" || exit 1
+    
+    print_header "Building Windows EXE Executable v$version"
+    
+    # Check required commands
+    if ! command -v pip &> /dev/null; then
+        print_error "pip command not found"
+        exit 1
+    fi
+    
+    # Install PyInstaller if not present
+    print_warning "Checking PyInstaller installation..."
+    if ! python3 -c "import PyInstaller" 2>/dev/null; then
+        print_warning "PyInstaller not found, installing..."
+        if ! pip install -q pyinstaller; then
+            print_error "Failed to install PyInstaller"
+            exit 1
+        fi
+        print_success "PyInstaller installed"
+    else
+        print_success "PyInstaller already installed"
+    fi
+    
+    # Create build directory
+    if ! mkdir -p dist/windows 2>/dev/null; then
+        print_error "Failed to create dist/windows directory"
+        exit 1
+    fi
+    
+    # Create PyInstaller spec file if it doesn't exist
+    if [ ! -f "runner.spec" ]; then
+        print_warning "Creating PyInstaller spec file..."
+        cat > runner.spec << 'SPEC_FILE'
+# -*- mode: python ; coding: utf-8 -*-
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files
+
+block_cipher = None
+
+a = Analysis(
+    ['runner.py'],
+    pathex=[],
+    binaries=[],
+    datas=collect_data_files('psutil'),
+    hiddenimports=['psutil', 'yaml', 'requests'] + collect_submodules('yaml'),
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludedimports=[],
+    win_no_prefer_redirects=False,
+    win_private_assemblies=False,
+    cipher=block_cipher,
+    noarchive=False,
+)
+pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+exe = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    [],
+    name='python-script-runner',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    runtime_tmpdir=None,
+    console=True,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+)
+SPEC_FILE
+        print_success "Spec file created"
+    fi
+    
+    # Build EXE using PyInstaller
+    print_warning "Building Windows executable with PyInstaller..."
+    if ! pyinstaller --specpath dist/windows runner.spec --onefile --distpath dist/windows/dist --buildpath dist/windows/build --workpath dist/windows/build 2>&1 | grep -v "WARNING"; then
+        print_error "Failed to build Windows executable"
+        exit 1
+    fi
+    
+    # Check if EXE was created
+    if [ ! -f "dist/windows/dist/python-script-runner.exe" ]; then
+        print_error "Windows executable not found at expected location"
+        exit 1
+    fi
+    
+    print_success "Windows executable built successfully"
+    
+    # Copy necessary files
+    print_warning "Packaging Windows executable..."
+    mkdir -p "dist/windows/python-script-runner-$version" || { print_error "Failed to create packaging directory"; exit 1; }
+    
+    cp "dist/windows/dist/python-script-runner.exe" "dist/windows/python-script-runner-$version/" || { print_error "Failed to copy executable"; exit 1; }
+    cp LICENSE "dist/windows/python-script-runner-$version/" || { print_error "Failed to copy LICENSE"; exit 1; }
+    cp README.md "dist/windows/python-script-runner-$version/" || { print_error "Failed to copy README"; exit 1; }
+    cp config.example.yaml "dist/windows/python-script-runner-$version/" 2>/dev/null || true
+    
+    # Create Windows ZIP
+    cd dist/windows || { print_error "Failed to enter dist/windows"; exit 1; }
+    zip -q -r "python-script-runner-$version-windows.zip" "python-script-runner-$version/" || { print_error "Failed to create Windows ZIP"; exit 1; }
+    cd - > /dev/null || { print_error "Failed to exit dist/windows"; exit 1; }
+    
+    print_success "Windows EXE packaged successfully"
+    ls -lh "dist/windows/python-script-runner-$version-windows.zip" || print_warning "Could not list Windows package"
+    
+    echo ""
+    echo "📦 Windows Executable Details:"
+    echo "   File: dist/windows/python-script-runner-$version-windows.zip"
+    echo "   Contains: python-script-runner.exe (standalone, no Python required)"
+    echo ""
+}
+
+cmd_build_deb() {
+    local version=$1
+    
+    if [ -z "$version" ]; then
+        print_error "Version required"
+        echo "Usage: bash release.sh build-deb VERSION"
+        exit 1
+    fi
+    
+    validate_version "$version" || exit 1
+    
+    print_header "Building Linux DEB Package v$version"
+    
+    # Check required commands
+    if ! command -v dpkg-deb &> /dev/null; then
+        print_error "dpkg-deb command not found (required for building DEB packages)"
+        exit 1
+    fi
+    
+    # Create DEB package structure
+    print_warning "Creating DEB package structure..."
+    local pkg_dir="dist/linux/python-script-runner-$version"
+    local debian_dir="$pkg_dir/DEBIAN"
+    
+    mkdir -p "$debian_dir" || { print_error "Failed to create DEBIAN directory"; exit 1; }
+    mkdir -p "$pkg_dir/usr/bin" || { print_error "Failed to create usr/bin directory"; exit 1; }
+    mkdir -p "$pkg_dir/usr/lib/python-script-runner" || { print_error "Failed to create lib directory"; exit 1; }
+    mkdir -p "$pkg_dir/usr/share/doc/python-script-runner" || { print_error "Failed to create doc directory"; exit 1; }
+    
+    # Copy application files
+    print_warning "Copying application files..."
+    cp runner.py "$pkg_dir/usr/lib/python-script-runner/" || { print_error "Failed to copy runner.py"; exit 1; }
+    cp requirements.txt "$pkg_dir/usr/lib/python-script-runner/" || { print_error "Failed to copy requirements.txt"; exit 1; }
+    cp LICENSE "$pkg_dir/usr/share/doc/python-script-runner/copyright" || { print_error "Failed to copy LICENSE"; exit 1; }
+    cp README.md "$pkg_dir/usr/share/doc/python-script-runner/" || { print_error "Failed to copy README"; exit 1; }
+    cp config.example.yaml "$pkg_dir/usr/lib/python-script-runner/" 2>/dev/null || true
+    
+    # Create wrapper script for /usr/bin
+    cat > "$pkg_dir/usr/bin/python-script-runner" << 'WRAPPER_SCRIPT'
+#!/bin/bash
+# Wrapper script for Python Script Runner
+set -e
+
+# Get script directory
+SCRIPT_DIR="/usr/lib/python-script-runner"
+
+# Check if requirements are installed
+check_requirements() {
+    python3 -c "import psutil, yaml, requests" 2>/dev/null || {
+        echo "Missing required Python dependencies. Installing..."
+        python3 -m pip install -r "$SCRIPT_DIR/requirements.txt" || {
+            echo "Failed to install dependencies. Please run: sudo apt-get install python3-psutil python3-yaml python3-requests"
+            exit 1
+        }
+    }
+}
+
+check_requirements
+
+# Run the runner
+exec python3 "$SCRIPT_DIR/runner.py" "$@"
+WRAPPER_SCRIPT
+    chmod +x "$pkg_dir/usr/bin/python-script-runner" || { print_error "Failed to make wrapper script executable"; exit 1; }
+    
+    # Calculate installed size
+    local installed_size=$(du -s "$pkg_dir/usr" | awk '{print $1}')
+    
+    # Create DEBIAN/control file
+    print_warning "Creating DEBIAN control file..."
+    cat > "$debian_dir/control" << CONTROL_FILE
+Package: python-script-runner
+Version: $version
+Architecture: all
+Maintainer: Python Script Runner Contributors <dev@example.com>
+Homepage: https://github.com/jomardyan/Python-Script-Runner
+Installed-Size: $installed_size
+Depends: python3 (>= 3.6), python3-pip, python3-psutil, python3-yaml, python3-requests
+Description: Production-grade Python script execution engine
+ Python Script Runner provides real-time monitoring, alerting, analytics,
+ and enterprise integrations for Python script execution.
+ .
+ Features:
+  - Real-time CPU and memory monitoring
+  - Multi-channel alerting (Email, Slack, webhooks)
+  - Historical analytics with trend analysis
+  - CI/CD integration with performance gates
+  - Web dashboard for metrics visualization
+  - Enterprise integrations (Datadog, Prometheus, New Relic)
+CONTROL_FILE
+    
+    # Create DEBIAN/postinst script
+    print_warning "Creating DEBIAN postinst script..."
+    cat > "$debian_dir/postinst" << 'POSTINST_SCRIPT'
+#!/bin/bash
+set -e
+
+echo "Installing Python dependencies for python-script-runner..."
+python3 -m pip install -q psutil pyyaml requests 2>/dev/null || true
+
+echo "python-script-runner installed successfully!"
+echo "Run with: python-script-runner <script.py> [options]"
+POSTINST_SCRIPT
+    chmod +x "$debian_dir/postinst" || { print_error "Failed to make postinst executable"; exit 1; }
+    
+    # Create DEBIAN/prerm script for cleanup
+    cat > "$debian_dir/prerm" << 'PRERM_SCRIPT'
+#!/bin/bash
+set -e
+
+# Optional: cleanup procedure before removal
+exit 0
+PRERM_SCRIPT
+    chmod +x "$debian_dir/prerm" || { print_error "Failed to make prerm executable"; exit 1; }
+    
+    # Build DEB package
+    print_warning "Building DEB package..."
+    if ! dpkg-deb --build "$pkg_dir" "dist/linux/python-script-runner_${version}_all.deb" 2>&1; then
+        print_error "Failed to build DEB package"
+        exit 1
+    fi
+    
+    # Verify DEB package
+    if [ ! -f "dist/linux/python-script-runner_${version}_all.deb" ]; then
+        print_error "DEB package not found at expected location"
+        exit 1
+    fi
+    
+    print_success "Linux DEB package built successfully"
+    ls -lh "dist/linux/python-script-runner_${version}_all.deb" || print_warning "Could not list DEB package"
+    
+    # Verify DEB contents
+    print_warning "Verifying DEB package contents..."
+    dpkg-deb -c "dist/linux/python-script-runner_${version}_all.deb" > /dev/null || { print_error "Failed to verify DEB package"; exit 1; }
+    
+    echo ""
+    echo "📦 Linux DEB Package Details:"
+    echo "   File: dist/linux/python-script-runner_${version}_all.deb"
+    echo "   Install with: sudo apt install ./python-script-runner_${version}_all.deb"
+    echo "   Or add to repository and: sudo apt-get install python-script-runner"
+    echo ""
+}
+
 cmd_prepare_release() {
     local version=$1
     
@@ -502,6 +781,12 @@ case "${1:-help}" in
         ;;
     build-bundles)
         cmd_build_bundles
+        ;;
+    build-exe)
+        cmd_build_exe "$2"
+        ;;
+    build-deb)
+        cmd_build_deb "$2"
         ;;
     prepare-release)
         cmd_prepare_release "$2"
