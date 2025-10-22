@@ -190,11 +190,23 @@ EOF
 }
 
 get_version() {
+    local version
+    
     if [ -f "$VERSION_FILE" ]; then
-        cat "$VERSION_FILE"
-    else
-        echo "$PACKAGE_VERSION"
+        version=$(grep '^version = ' "$VERSION_FILE" 2>/dev/null | sed 's/version = "\(.*\)"/\1/' || echo "")
+        if [ -n "$version" ]; then
+            echo "$version"
+            return 0
+        fi
     fi
+    
+    if [ -n "$PACKAGE_VERSION" ]; then
+        echo "$PACKAGE_VERSION"
+        return 0
+    fi
+    
+    print_error "Unable to determine version"
+    return 1
 }
 
 validate_version() {
@@ -209,18 +221,30 @@ validate_version() {
 cmd_version() {
     print_header "Python Script Runner Version Info"
     
-    if check_files_exist "pyproject.toml" 2>/dev/null; then
-        local version
+    local version
+    if [ -f "pyproject.toml" ]; then
         version=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/' 2>/dev/null) || version="unknown"
+        if [ -z "$version" ]; then
+            version="unknown"
+        fi
         echo "Current Version: $version"
     else
-        echo "Current Version: $PACKAGE_VERSION"
+        if [ -n "$PACKAGE_VERSION" ]; then
+            echo "Current Version: $PACKAGE_VERSION"
+        else
+            echo "Current Version: unknown"
+        fi
     fi
     
     if git rev-parse --git-dir > /dev/null 2>&1; then
         local git_tag
-        git_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo 'None')
-        echo "Latest Git Tag: $git_tag"
+        if git_tag=$(git describe --tags --abbrev=0 2>/dev/null); then
+            echo "Latest Git Tag: $git_tag"
+        else
+            echo "Latest Git Tag: None"
+        fi
+    else
+        echo "Latest Git Tag: Not a git repository"
     fi
 }
 
@@ -354,10 +378,19 @@ cmd_build_bundles() {
     print_header "Building Release Bundles"
     
     # Check required files exist
-    check_files_exist "runner.py" "requirements.txt" "LICENSE" "README.md" || exit 1
+    if ! check_files_exist "runner.py" "requirements.txt" "LICENSE" "README.md"; then
+        print_error "Missing required files for bundle build"
+        exit 1
+    fi
     
-    if ! mkdir -p dist 2>/dev/null; then
+    # Create dist directory
+    if ! mkdir -p dist; then
         print_error "Failed to create dist directory"
+        exit 1
+    fi
+    
+    if [ ! -d "dist" ]; then
+        print_error "dist directory does not exist or is not accessible"
         exit 1
     fi
     
@@ -383,8 +416,19 @@ INSTALL_SCRIPT
     chmod +x dist/python3-runner/INSTALL.sh || { print_error "Failed to make INSTALL.sh executable"; exit 1; }
     
     cd dist || { print_error "Failed to enter dist directory"; exit 1; }
-    tar -czf python3-runner.tar.gz python3-runner/ || { print_error "Failed to create tar.gz"; exit 1; }
-    zip -q -r python3-runner.zip python3-runner/ || { print_error "Failed to create zip"; exit 1; }
+    
+    if ! tar -czf python3-runner.tar.gz python3-runner/ 2>/dev/null; then
+        cd .. > /dev/null 2>&1 || true
+        print_error "Failed to create python3-runner.tar.gz"
+        exit 1
+    fi
+    
+    if ! zip -q -r python3-runner.zip python3-runner/ 2>/dev/null; then
+        cd .. > /dev/null 2>&1 || true
+        print_error "Failed to create python3-runner.zip"
+        exit 1
+    fi
+    
     cd .. || { print_error "Failed to exit dist directory"; exit 1; }
     
     print_success "Python 3 bundle created"
@@ -425,8 +469,19 @@ INSTALL_SCRIPT
     chmod +x dist/pypy3-runner/INSTALL.sh || { print_error "Failed to make pypy3 INSTALL.sh executable"; exit 1; }
     
     cd dist || { print_error "Failed to enter dist directory"; exit 1; }
-    tar -czf pypy3-runner.tar.gz pypy3-runner/ || { print_error "Failed to create pypy3 tar.gz"; exit 1; }
-    zip -q -r pypy3-runner.zip pypy3-runner/ || { print_error "Failed to create pypy3 zip"; exit 1; }
+    
+    if ! tar -czf pypy3-runner.tar.gz pypy3-runner/ 2>/dev/null; then
+        cd .. > /dev/null 2>&1 || true
+        print_error "Failed to create pypy3-runner.tar.gz"
+        exit 1
+    fi
+    
+    if ! zip -q -r pypy3-runner.zip pypy3-runner/ 2>/dev/null; then
+        cd .. > /dev/null 2>&1 || true
+        print_error "Failed to create pypy3-runner.zip"
+        exit 1
+    fi
+    
     cd .. || { print_error "Failed to exit dist directory"; exit 1; }
     
     print_success "PyPy3 bundle created"
@@ -435,7 +490,13 @@ INSTALL_SCRIPT
     # Create checksums
     print_warning "Creating checksums..."
     cd dist || { print_error "Failed to enter dist"; exit 1; }
-    sha256sum python3-runner.* pypy3-runner.* > SHA256SUMS.txt || { print_error "Failed to create checksums"; exit 1; }
+    
+    if ! sha256sum python3-runner.* pypy3-runner.* > SHA256SUMS.txt 2>/dev/null; then
+        cd .. > /dev/null 2>&1 || true
+        print_error "Failed to create checksums"
+        exit 1
+    fi
+    
     cd .. || { print_error "Failed to exit dist"; exit 1; }
     print_success "Checksums created"
 }
@@ -530,9 +591,16 @@ SPEC_FILE
     
     # Build EXE using PyInstaller
     print_warning "Building Windows executable with PyInstaller..."
-    if ! pyinstaller --specpath dist/windows runner.spec --onefile --distpath dist/windows/dist --workpath dist/windows/build 2>&1 | grep -v "WARNING"; then
+    local pyinstaller_output
+    if ! pyinstaller_output=$(pyinstaller runner.spec --distpath dist/windows/dist --workpath dist/windows/build 2>&1); then
         print_error "Failed to build Windows executable"
+        echo "PyInstaller error: $pyinstaller_output"
         exit 1
+    fi
+    
+    # Show non-warning output
+    if echo "$pyinstaller_output" | grep -v "WARNING" > /dev/null 2>&1; then
+        echo "$pyinstaller_output" | grep -v "WARNING" || true
     fi
     
     # Check if EXE was created
@@ -683,8 +751,10 @@ PRERM_SCRIPT
     
     # Build DEB package
     print_warning "Building DEB package..."
-    if ! dpkg-deb --build "$pkg_dir" "dist/linux/python-script-runner_${version}_all.deb" 2>&1; then
+    local deb_output
+    if ! deb_output=$(dpkg-deb --build "$pkg_dir" "dist/linux/python-script-runner_${version}_all.deb" 2>&1); then
         print_error "Failed to build DEB package"
+        echo "dpkg-deb error: $deb_output"
         exit 1
     fi
     
@@ -806,15 +876,19 @@ cmd_publish() {
     
     # Check if tag is already pushed
     print_warning "Checking if tag is already published..."
-    if git rev-parse "origin/refs/tags/v$version" >/dev/null 2>&1; then
+    local remote_exists
+    if remote_exists=$(git rev-parse "origin/refs/tags/v$version" 2>&1); then
         print_warning "Tag v$version already exists on remote - skipping push"
     else
         print_warning "Pushing tag to GitHub..."
-        if ! git push origin "v$version" 2>&1; then
+        local push_output
+        if ! push_output=$(git push origin "v$version" 2>&1); then
             print_error "Failed to push tag to GitHub"
+            echo "Git error: $push_output"
             echo "Make sure you have push permissions and a remote named 'origin'"
             exit 1
         fi
+        print_success "Tag pushed successfully"
     fi
     
     print_success "Release pushed to GitHub!"
