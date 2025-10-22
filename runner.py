@@ -7485,16 +7485,73 @@ Examples:
                 json.dump(metrics, f, indent=2, default=str)
             logging.info(f"Metrics saved to {args.json_output}")
 
-        # Print metrics summary
+        # Print detailed metrics summary
         print("\n" + "="*80)
-        print("EXECUTION METRICS")
+        print("EXECUTION METRICS REPORT")
         print("="*80)
-        print(f"Script: {metrics.get('script_path', 'N/A')}")
-        print(f"Exit Code: {metrics.get('exit_code', 'N/A')}")
-        print(f"Execution Time: {metrics.get('execution_time_seconds', 0):.4f}s")
-        print(f"CPU Max: {metrics.get('cpu_max', 0):.1f}%")
-        print(f"Memory Max: {metrics.get('memory_max_mb', 0):.1f} MB")
-        print(f"Success: {metrics.get('success', False)}")
+        
+        # Script Information
+        print("\n📋 SCRIPT INFORMATION")
+        print("-" * 80)
+        print(f"  Script Path: {metrics.get('script_path', 'N/A')}")
+        print(f"  Status: {'✅ SUCCESS' if metrics.get('success', False) else '❌ FAILED'}")
+        print(f"  Exit Code: {metrics.get('exit_code', 'N/A')}")
+        
+        # Execution Timing
+        print("\n⏱️  EXECUTION TIMING")
+        print("-" * 80)
+        start_time = metrics.get('start_time', 'N/A')
+        end_time = metrics.get('end_time', 'N/A')
+        print(f"  Start Time: {start_time}")
+        print(f"  End Time: {end_time}")
+        print(f"  Total Duration: {metrics.get('execution_time_seconds', 0):.4f}s")
+        print(f"  User Time: {metrics.get('user_time_seconds', 0):.4f}s")
+        print(f"  System Time: {metrics.get('system_time_seconds', 0):.4f}s")
+        
+        # CPU Metrics
+        print("\n💻 CPU METRICS")
+        print("-" * 80)
+        print(f"  Max CPU: {metrics.get('cpu_max', 0):.1f}%")
+        print(f"  Avg CPU: {metrics.get('cpu_avg', 0):.1f}%")
+        print(f"  Min CPU: {metrics.get('cpu_min', 0):.1f}%")
+        print(f"  Context Switches: {metrics.get('context_switches', 0)}")
+        
+        # Memory Metrics
+        print("\n🧠 MEMORY METRICS")
+        print("-" * 80)
+        print(f"  Max Memory: {metrics.get('memory_max_mb', 0):.1f} MB")
+        print(f"  Avg Memory: {metrics.get('memory_avg_mb', 0):.1f} MB")
+        print(f"  Min Memory: {metrics.get('memory_min_mb', 0):.1f} MB")
+        print(f"  Page Faults: {metrics.get('page_faults', 0)}")
+        
+        # System Metrics
+        print("\n⚙️  SYSTEM METRICS")
+        print("-" * 80)
+        print(f"  Process Threads: {metrics.get('num_threads', 0)}")
+        print(f"  Open File Descriptors: {metrics.get('num_fds', 0)}")
+        print(f"  Block I/O Operations: {metrics.get('block_io_count', 0)}")
+        
+        # Output Metrics
+        print("\n📤 OUTPUT METRICS")
+        print("-" * 80)
+        print(f"  Stdout Lines: {metrics.get('stdout_lines', 0)}")
+        print(f"  Stderr Lines: {metrics.get('stderr_lines', 0)}")
+        
+        # Timeout Information (if applicable)
+        if metrics.get('timeout_seconds'):
+            print("\n⏰ TIMEOUT CONFIGURATION")
+            print("-" * 80)
+            print(f"  Timeout: {metrics.get('timeout_seconds')}s")
+            print(f"  Timed Out: {'Yes ⚠️' if metrics.get('timed_out') else 'No ✅'}")
+        
+        # Retry Information (if applicable)
+        if metrics.get('attempt_number', 1) > 1:
+            print("\n🔄 RETRY INFORMATION")
+            print("-" * 80)
+            print(f"  Attempt Number: {metrics.get('attempt_number', 1)}")
+            print(f"  Total Attempts: {metrics.get('total_attempts', 1)}")
+        
+        print("\n" + "="*80)
 
         # Exit with appropriate code
         exit_code = returncode
