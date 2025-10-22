@@ -7,13 +7,92 @@ on:
     tags:
       - 'v*'
 
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  validate-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get-version.outputs.version }}
+      tag_name: ${{ steps.get-version.outputs.tag_name }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version from tag
+        id: get-version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#v}"
+          echo "tag_name=${TAG}" >> $GITHUB_OUTPUT
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "📌 Release: $TAG (version: $VERSION)"
+
+      - name: Validate version format
+        run: |
+          VERSION="${{ steps.get-version.outputs.version }}"
+          if [[ ! $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?$ ]]; then
+            echo "❌ Invalid version format: $VERSION"
+            exit 1
+          fi
+          echo "✅ Version format valid: $VERSION"
+
+      - name: Verify version in source
+        run: |
+          VERSION="${{ steps.get-version.outputs.version }}"
+          PYPROJECT_VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          if [ "$PYPROJECT_VERSION" != "$VERSION" ]; then
+            echo "❌ Version mismatch: pyproject.toml has $PYPROJECT_VERSION, tag has $VERSION"
+            exit 1
+          fi
+          echo "✅ Version in pyproject.toml matches tag: $VERSION"
+
+  test:
+    needs: validate-version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12']
+      fail-fast: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests
+        run: |
+          python -m py_compile runner.py test_script.py
+          if [ -f "tests/test_*.py" ]; then
+            python -m pytest tests/ -v
+          fi
+
+      - name: Validate package import
+        run: |
+          python -c "import runner; print(f'✅ Package version: {runner.__version__}')"
+
   build-and-publish:
+    needs: [validate-version, test]
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
-
+    environment:
+      name: release
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -26,56 +105,114 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Install dependencies
+      - name: Install build tools
         run: |
-          python -m pip install --upgrade pip
-          pip install build twine
+          python -m pip install --upgrade pip setuptools wheel build twine
 
-      - name: Verify package metadata
+      - name: Verify version consistency
         run: |
-          python -m pip install .
-          python -c "import runner; print(f'Package version: {runner.__version__}')"
+          VERSION="${{ needs.validate-version.outputs.version }}"
+          PYPROJECT_VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          RUNNER_VERSION=$(grep "__version__ = " runner.py | sed 's/__version__ = "\(.*\)"/\1/')
+          
+          echo "📌 Version check:"
+          echo "  Tag: $VERSION"
+          echo "  pyproject.toml: $PYPROJECT_VERSION"
+          echo "  runner.py: $RUNNER_VERSION"
+          
+          if [ "$PYPROJECT_VERSION" != "$VERSION" ] || [ "$RUNNER_VERSION" != "$VERSION" ]; then
+            echo "❌ Version mismatch detected"
+            exit 1
+          fi
+          echo "✅ All versions synchronized"
 
       - name: Build distributions
         run: |
           python -m build
-
-      - name: Check distributions with twine
-        run: |
-          twine check dist/*
-
-      - name: List built artifacts
-        run: |
+          echo "✅ Built distributions:"
           ls -lh dist/
 
+      - name: Verify package integrity
+        run: |
+          twine check dist/*
+          pip install dist/*.whl
+          python -c "import runner; print(f'✅ Installed version: {runner.__version__}')"
+
       - name: Publish to PyPI
+        if: success()
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
         run: |
+          echo "🚀 Publishing to PyPI..."
           twine upload dist/* --verbose
+          echo "✅ Published to PyPI"
 
       - name: Publish to GitHub Packages
+        if: success()
         env:
           TWINE_REPOSITORY_URL: https://python.pkg.github.com/jomardyan
           TWINE_USERNAME: ${{ github.actor }}
           TWINE_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          echo "🚀 Publishing to GitHub Packages..."
           twine upload dist/* --verbose
+          echo "✅ Published to GitHub Packages"
 
-      - name: Create release assets
+      - name: Create GitHub Release with Assets
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: ${{ needs.validate-version.outputs.tag_name }}
+          body: |
+            # Release ${{ needs.validate-version.outputs.version }}
+            
+            ## Distribution Packages
+            - **PyPI**: https://pypi.org/project/python-script-runner/${{ needs.validate-version.outputs.version }}/
+            - **GitHub Packages**: https://github.com/jomardyan/Python-Script-Runner/packages
+            
+            ## Install
+            ```bash
+            pip install python-script-runner==${{ needs.validate-version.outputs.version }}
+            ```
+            
+            ## What's New
+            See commit history for changes in this release.
           files: dist/*
           draft: false
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish status
-        if: always()
+      - name: Publish Success Summary
+        if: success()
         run: |
-          echo "✅ Build completed successfully"
-          echo "📦 Package published to PyPI: https://pypi.org/project/python-script-runner/"
-          echo "📦 Package published to GitHub Packages: https://github.com/jomardyan/Python-Script-Runner/packages"
+          cat << 'EOF'
+          
+          ╔════════════════════════════════════════════════════════════╗
+          ║          🎉 Release Published Successfully! 🎉             ║
+          ╠════════════════════════════════════════════════════════════╣
+          ║ Version: ${{ needs.validate-version.outputs.version }}
+          ║ Tag: ${{ needs.validate-version.outputs.tag_name }}
+          ╠════════════════════════════════════════════════════════════╣
+          ║ 📦 PyPI Package                                            ║
+          ║ 🐍 GitHub Packages                                         ║
+          ║ 📄 GitHub Release                                          ║
+          ║ ✅ All systems go!                                        ║
+          ╚════════════════════════════════════════════════════════════╝
+          
+          📍 Package URLs:
+          - PyPI: https://pypi.org/project/python-script-runner/${{ needs.validate-version.outputs.version }}/
+          - GitHub Packages: https://github.com/jomardyan/Python-Script-Runner/packages
+          - Release: https://github.com/jomardyan/Python-Script-Runner/releases/tag/${{ needs.validate-version.outputs.tag_name }}
+          
+          🚀 Install with: pip install python-script-runner==${{ needs.validate-version.outputs.version }}
+          
+          EOF
+
+      - name: Publish Failure Summary
+        if: failure()
+        run: |
+          echo "❌ Release publishing failed"
+          echo "📍 Check workflow logs for details"
+          exit 1

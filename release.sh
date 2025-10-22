@@ -1,6 +1,7 @@
 #!/bin/bash
 # Release management script for Python Script Runner
 # Automates versioning, tagging, and release preparation
+# Integrates with version.sh for semantic versioning and GitHub Actions CI/CD
 
 set -euo pipefail
 
@@ -14,10 +15,16 @@ handle_error() {
     exit "$exit_code"
 }
 
-VERSION_FILE=".version"
-# Allow PACKAGE_VERSION to be set via environment variable (used by GitHub Actions)
-# If not set, it will be determined from pyproject.toml or .version file
-PACKAGE_VERSION="${RELEASE_VERSION:-3.0.0}"
+# Script directory and integration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VERSION_SCRIPT="${SCRIPT_DIR}/version.sh"
+GITHUB_WORKFLOWS_DIR="${SCRIPT_DIR}/.github/workflows"
+
+# Configuration
+VERSION_FILE="pyproject.toml"
+RUNNER_FILE="runner.py"
+INIT_FILE="__init__.py"
+PACKAGE_VERSION="${RELEASE_VERSION:-}"
 
 # Validate required files exist
 check_files_exist() {
@@ -65,24 +72,47 @@ show_help() {
     cat << EOF
 Python Script Runner - Release Management
 
+INTEGRATED TOOLS:
+  • version.sh    - Semantic versioning (bump, set, validate, sync)
+  • release.sh    - Release orchestration (workflow integration)
+  • GitHub Actions - Automated testing and publishing
+
 Usage: bash release.sh [command] [options]
 
 Commands:
-  version              Show current version
-  bump (major|minor|patch) [dry-run]  Bump version automatically
-  validate             Validate code and dependencies
-  build-bundles        Build release bundles locally
-  prepare-release VER  Prepare release (creates git tag)
-  publish VER          Create and push release tag
-  help                 Show this help message
+  version              Show current version and latest git tag
+  bump (major|minor|patch) [dry-run]
+                      Bump version using version.sh (auto-updates files)
+  validate            Run pre-release validation checks
+  prepare-release VER Prepare release: update files, create git tag
+  publish VER         Push tag to GitHub (triggers GitHub Actions workflow)
+  help                Show this help message
+
+Workflow:
+  1. bash release.sh bump patch              # Auto-bump version
+  2. bash release.sh prepare-release X.Y.Z   # Create and tag release
+  3. bash release.sh publish X.Y.Z           # Push tag to GitHub
+  4. GitHub Actions will auto-build and publish to PyPI & GitHub Packages
+
+Options:
+  X.Y.Z             Version in semantic versioning format
+  dry-run           Preview changes without applying them
 
 Examples:
-  bash release.sh version                     # Show current version
-  bash release.sh bump patch                  # Bump to next patch version
-  bash release.sh bump patch dry-run          # Preview bump
-  bash release.sh validate                    # Run pre-release checks
-  bash release.sh prepare-release 3.0.1       # Tag version 3.0.1
-  bash release.sh publish 3.0.1               # Create GitHub release
+  bash release.sh version                    # Show current version
+  bash release.sh bump patch                 # Bump to next patch
+  bash release.sh bump minor dry-run         # Preview minor bump
+  bash release.sh validate                   # Run validation checks
+  bash release.sh prepare-release 6.3.0      # Prepare v6.3.0 release
+  bash release.sh publish 6.3.0              # Trigger GitHub Actions
+
+Integration Points:
+  • version.sh is used for version management
+  • GitHub Actions triggers on tag push (v*)
+  • PyPI_API_TOKEN secret required in GitHub Secrets
+  • GITHUB_TOKEN auto-provided for GitHub Packages
+
+See RELEASING.md for detailed guide and troubleshooting.
 
 EOF
 }
@@ -124,7 +154,7 @@ cmd_version() {
 
 cmd_bump() {
     local bump_type=$1
-    local dry_run=$2
+    local dry_run=${2:-}
     
     if [ -z "$bump_type" ]; then
         print_error "Bump type required (major|minor|patch)"
@@ -138,54 +168,58 @@ cmd_bump() {
     
     print_header "Automatic Version Bump ($bump_type)"
     
-    # Check if version.sh exists and is executable
-    if [ ! -f "version.sh" ]; then
-        print_error "version.sh not found"
+    # Check if version.sh exists
+    if [ ! -f "$VERSION_SCRIPT" ]; then
+        print_error "version.sh not found at $VERSION_SCRIPT"
         exit 1
     fi
     
+    # Validate before bump
+    if [ "$dry_run" != "dry-run" ]; then
+        print_warning "Running pre-bump validation..."
+        cmd_validate || exit 1
+    fi
+    
+    # Use version.sh to bump version
+    print_warning "Delegating to version.sh for version bump..."
     if [ "$dry_run" = "dry-run" ]; then
-        if bash version.sh bump "$bump_type" dry-run 2>/dev/null; then
+        if bash "$VERSION_SCRIPT" bump "$bump_type" dry-run > /dev/null 2>&1; then
             print_success "Dry-run completed successfully"
+            bash "$VERSION_SCRIPT" bump "$bump_type" dry-run
         else
             print_error "Dry-run failed"
             exit 1
         fi
     else
-        cmd_validate || exit 1
-        
-        if bash version.sh bump "$bump_type" 2>/dev/null; then
-            print_success "Version bump successful"
+        if bash "$VERSION_SCRIPT" bump "$bump_type" > /dev/null 2>&1; then
+            print_success "Version bump successful via version.sh"
         else
             print_error "Version bump failed"
             exit 1
         fi
         
+        # Get new version
         local new_version
-        if [ -f "pyproject.toml" ]; then
-            new_version=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/' 2>/dev/null) || new_version="unknown"
-        else
-            print_error "pyproject.toml not found"
-            exit 1
-        fi
+        new_version=$(bash "$VERSION_SCRIPT" current) || { print_error "Failed to get version"; exit 1; }
         
-        print_warning "Staging files..."
-        if [ -f "pyproject.toml" ]; then
-            git add pyproject.toml || { print_error "Failed to stage pyproject.toml"; exit 1; }
-        fi
-        if [ -f "runner.py" ]; then
-            git add runner.py || { print_error "Failed to stage runner.py"; exit 1; }
-        fi
+        # Stage all version files
+        print_warning "Staging version files..."
+        for file in "$VERSION_FILE" "$RUNNER_FILE" "$INIT_FILE"; do
+            if [ -f "$file" ]; then
+                git add "$file" || { print_error "Failed to stage $file"; exit 1; }
+            fi
+        done
         
-        print_warning "Committing..."
-        if git commit -m "Bump version to $new_version" 2>/dev/null; then
+        # Commit changes
+        print_warning "Committing version bump..."
+        if git commit -m "chore: bump version to $new_version" > /dev/null 2>&1; then
             print_success "Committed version bump to git"
         else
             print_warning "No version changes to commit"
         fi
         
         echo ""
-        echo "Next: bash release.sh prepare-release $new_version"
+        echo "Next step: bash release.sh prepare-release $new_version"
     fi
 }
 
@@ -345,42 +379,52 @@ cmd_prepare_release() {
     cmd_validate || exit 1
     
     # Check if version.sh exists
-    if [ ! -f "version.sh" ]; then
-        print_error "version.sh not found"
+    if [ ! -f "$VERSION_SCRIPT" ]; then
+        print_error "version.sh not found at $VERSION_SCRIPT"
         exit 1
     fi
     
-    # Update version in code files
-    print_warning "Updating version in code files..."
-    if ! bash version.sh set "$version" > /dev/null 2>&1; then
+    # Update version in code files using version.sh
+    print_warning "Updating version in code files via version.sh..."
+    if ! bash "$VERSION_SCRIPT" set "$version" > /dev/null 2>&1; then
         print_error "Failed to update version"
         exit 1
     fi
     
-    # Commit version changes
-    print_warning "Committing version changes..."
-    if git add pyproject.toml runner.py 2>/dev/null; then
-        if ! git commit -m "Bump version to $version" 2>/dev/null; then
-            print_warning "No version changes to commit"
+    # Stage all version files
+    print_warning "Staging version files..."
+    for file in "$VERSION_FILE" "$RUNNER_FILE" "$INIT_FILE"; do
+        if [ -f "$file" ]; then
+            git add "$file" 2>/dev/null || true
         fi
+    done
+    
+    # Commit version changes if there are changes
+    if [ -n "$(git status --porcelain)" ]; then
+        print_warning "Committing version changes..."
+        if ! git commit -m "chore: prepare release v$version" 2>/dev/null; then
+            print_error "Failed to commit version changes"
+            exit 1
+        fi
+        print_success "Version changes committed"
     else
-        print_error "Failed to stage version files"
-        exit 1
+        print_warning "No version changes detected"
     fi
     
     # Create git tag
     print_warning "Creating git tag v$version..."
     if ! git tag -a "v$version" -m "Release version $version" 2>/dev/null; then
-        print_error "Failed to create git tag"
+        print_error "Failed to create git tag (tag may already exist)"
         exit 1
     fi
     print_success "Tag created: v$version"
     
     echo ""
-    print_warning "Next steps:"
-    echo "1. Review the changes: git show v$version"
-    echo "2. Push to GitHub: bash release.sh publish $version"
-    echo "3. GitHub Actions will automatically build and create the release"
+    echo "📋 Release Preparation Summary:"
+    echo "   Version: $version"
+    echo "   Tag: v$version"
+    echo ""
+    print_warning "Next step: bash release.sh publish $version"
     echo ""
     print_success "Release preparation complete!"
 }
@@ -411,22 +455,38 @@ cmd_publish() {
         exit 1
     fi
     
-    print_warning "Pushing tag to GitHub..."
-    if ! git push origin "v$version" 2>&1; then
-        print_error "Failed to push tag to GitHub"
-        echo "Make sure you have push permissions and a remote named 'origin'"
-        exit 1
+    # Check if tag is already pushed
+    print_warning "Checking if tag is already published..."
+    if git rev-parse "origin/refs/tags/v$version" >/dev/null 2>&1; then
+        print_warning "Tag v$version already exists on remote - skipping push"
+    else
+        print_warning "Pushing tag to GitHub..."
+        if ! git push origin "v$version" 2>&1; then
+            print_error "Failed to push tag to GitHub"
+            echo "Make sure you have push permissions and a remote named 'origin'"
+            exit 1
+        fi
     fi
     
     print_success "Release pushed to GitHub!"
     echo ""
-    echo "GitHub Actions workflow will:"
-    echo "✓ Run tests on Python 3 and PyPy3"
-    echo "✓ Build Python 3 distribution bundle"
-    echo "✓ Build PyPy3 distribution bundle"
-    echo "✓ Create GitHub Release with all artifacts"
+    echo "📋 GitHub Actions Workflow:"
+    echo "   The following steps will run automatically:"
+    echo "   ✓ Validate version in tag and source files"
+    echo "   ✓ Run tests on Python 3.8-3.12"
+    echo "   ✓ Build distributions (wheel + sdist)"
+    echo "   ✓ Publish to PyPI"
+    echo "   ✓ Publish to GitHub Packages"
+    echo "   ✓ Create GitHub Release with assets"
     echo ""
-    echo "Watch progress at: https://github.com/jomardyan/Python-Script-Runner/actions"
+    echo "🔗 Watch progress:"
+    echo "   https://github.com/jomardyan/Python-Script-Runner/actions"
+    echo ""
+    echo "📦 Release URLs (once published):"
+    echo "   PyPI: https://pypi.org/project/python-script-runner/$version/"
+    echo "   GitHub: https://github.com/jomardyan/Python-Script-Runner/releases/tag/v$version"
+    echo ""
+    print_success "Release published successfully!"
 }
 
 # Main
