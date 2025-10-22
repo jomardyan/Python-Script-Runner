@@ -44,7 +44,7 @@ try:
     ]
 except ImportError:
     # Fallback if imported as a package before installation
-    __version__ = "6.1.0"
+    __version__ = "6.2.0"
     __author__ = "Python Script Runner Contributors"
     __license__ = "MIT"
     __all__ = []
