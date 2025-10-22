@@ -1,144 +1,120 @@
 # Advanced Features
 
-## Phase 3: Optimization & Enterprise
+> Comprehensive guide to advanced Python Script Runner features
 
-### ML Anomaly Detection
+## Available Features (20)
 
-Detect statistical anomalies in metrics:
+- **HISTORICAL DATA TRACKING (SQLite Backend)**
+- **TREND ANALYSIS & REGRESSION DETECTION**
+- **AUTO-BASELINE CALCULATION**
+- **STRUCTURED LOGGING & LOG ANALYSIS**
+- **TIME-SERIES QUERY API**
+- **MULTI-SCRIPT ORCHESTRATION WITH DAG SUPPORT**
+- **DATA EXPORT & RETENTION POLICIES**
+- **PERFORMANCE OPTIMIZATION ENGINE**
+- **ADVANCED SCHEDULING SYSTEM**
+- **MACHINE LEARNING ANOMALY DETECTION**
+- **ADVANCED METRICS CORRELATION ANALYSIS**
+- **PERFORMANCE BENCHMARKING FRAMEWORK**
+- **ALERT INTELLIGENCE & TUNING**
+- **ADVANCED DEBUGGING & PROFILING**
+- **ENTERPRISE INTEGRATIONS**
+- **RESOURCE PREDICTION & FORECASTING**
+- **DISTRIBUTED EXECUTION SUPPORT**
+- **ADVANCED RETRY & RECOVERY STRATEGIES**
+- **ALERTING & NOTIFICATION SYSTEM**
+- **CI/CD PIPELINE INTEGRATION**
 
-```bash
-python runner.py script.py \
-    --history-db metrics.db \
-    --detect-anomalies \
-    --anomaly-method iqr  # iqr, zscore, mad
+## Trend Analysis
+
+Automatically analyze performance trends:
+
+```python
+from runner import TrendAnalyzer
+
+analyzer = TrendAnalyzer()
+trend = analyzer.calculate_linear_regression(values)
+# Returns: slope, intercept, r_squared, trend direction
 ```
 
-### Metrics Correlation
+## Anomaly Detection
 
-Find relationships between metrics:
+Detect anomalies using multiple methods:
 
-```bash
-python runner.py script.py \
-    --analyze-correlations \
-    --correlation-days 30 \
-    --correlation-threshold 0.7
+```python
+# IQR method
+anomalies = analyzer.detect_anomalies(values, method='iqr')
 
-python runner.py script.py \
-    --find-predictors memory_max_mb \
-    --detect-dependencies
+# Z-score method
+anomalies = analyzer.detect_anomalies(values, method='zscore')
+
+# MAD method
+anomalies = analyzer.detect_anomalies(values, method='mad')
 ```
 
-### Performance Benchmarking
+## Baseline Calculation
 
-Create and compare benchmarks:
+Intelligent baseline calculation:
 
-```bash
-python runner.py script.py \
-    --create-benchmark my_benchmark \
-    --benchmark-version 1.0.0
+```python
+from runner import BaselineCalculator
 
-python runner.py runner.py \
-    --compare-benchmarks 1.0.0 1.1.0 \
-    --detect-regressions my_benchmark
+calc = BaselineCalculator()
+baseline = calc.calculate_intelligent_baseline(values)
+# Auto-selects best method based on data characteristics
 ```
 
-### Intelligent Alert Tuning
+## Workflow Orchestration
 
-Auto-tune alert thresholds:
+Execute multiple scripts with DAG support:
 
-```bash
-python runner.py script.py \
-    --auto-tune-thresholds cpu_max \
-    --threshold-method iqr  # iqr, zscore, percentile
+```python
+from runner import ScriptWorkflow
+
+workflow = ScriptWorkflow('pipeline')
+workflow.add_script('etl', 'etl.py')
+workflow.add_script('train', 'train.py', dependencies=['etl'])
+workflow.add_script('eval', 'eval.py', dependencies=['train'])
+result = workflow.execute()
 ```
 
-### Advanced Profiling
+## Performance Optimization
 
-Detailed performance profiling:
+Get optimization recommendations:
 
-```bash
-python runner.py script.py \
-    --profile-cpu-memory \
-    --profile-duration 60 \
-    --profile-io
+```python
+from runner import PerformanceOptimizer
+
+optimizer = PerformanceOptimizer(history_manager)
+report = optimizer.get_optimization_report('script.py')
+print(report)
 ```
 
-### Resource Forecasting
+## Alert Intelligence
 
-Forecast future metrics:
+Smart alert management:
 
-```bash
-python runner.py script.py \
-    --forecast-metric memory_max_mb \
-    --forecast-days 30 \
-    --forecast-method exponential
+```python
+from runner import AlertIntelligence
 
-python runner.py script.py \
-    --predict-sla cpu_max \
-    --sla-threshold 85 \
-    --estimate-capacity memory_max_mb
+intel = AlertIntelligence()
+# Deduplicate alerts
+alerts = intel.deduplicate_alerts(raw_alerts)
+# Calculate adaptive thresholds
+threshold = intel.calculate_adaptive_threshold('cpu', values)
 ```
 
-### Enterprise Integrations
+## Benchmarking
 
-Send metrics to monitoring platforms:
+Performance regression detection:
 
-```bash
-# Datadog
-python runner.py script.py \
-    --send-to-datadog production \
-    --datadog-api-key "$DATADOG_API_KEY"
+```python
+from runner import BenchmarkManager
 
-# Prometheus
-python runner.py script.py \
-    --send-to-prometheus metrics \
-    --prometheus-url "http://prometheus:9091"
-
-# New Relic
-python runner.py script.py \
-    --send-to-newrelic app_metrics \
-    --newrelic-api-key "$NEWRELIC_API_KEY"
+bm = BenchmarkManager()
+bm.create_benchmark('v1.0', script_path='script.py')
+# Later...
+comparison = bm.compare_benchmarks('v1.0', 'v2.0')
+regressions = bm.detect_regressions('benchmark_name')
 ```
 
-### Distributed Execution
-
-Execute on remote systems:
-
-```bash
-# SSH
-python runner.py script.py \
-    --ssh-host server.example.com \
-    --ssh-user deploy \
-    --ssh-key ~/.ssh/deploy_key
-
-# Docker
-python runner.py script.py \
-    --docker-image python:3.11 \
-    --docker-env PYTHONUNBUFFERED=1
-
-# Kubernetes
-python runner.py script.py \
-    --k8s-namespace pipelines \
-    --k8s-job-name job-$(date +%s) \
-    --k8s-image python:3.11
-```
-
-### Task Scheduling
-
-Schedule scripts to run automatically:
-
-```bash
-# Add scheduled task
-python runner.py runner.py \
-    --add-scheduled-task daily_report \
-    --schedule daily \
-    --cron "0 9 * * *"
-
-# Add event trigger
-python runner.py runner.py \
-    --add-event-trigger data_ready \
-    --event-task-id process_data
-
-# List tasks
-python runner.py runner.py --list-scheduled-tasks
-```

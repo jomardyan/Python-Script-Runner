@@ -1,80 +1,90 @@
-# Metrics
+# Metrics Reference
 
-## Collected Metrics
+> Complete guide to all metrics collected by Python Script Runner
 
-### Timing
-- `start_time` - ISO 8601 timestamp
-- `end_time` - ISO 8601 timestamp
-- `execution_time_seconds` - Total duration
+## Overview
 
-### Exit Status
-- `exit_code` - Process exit code
-- `success` - Boolean success flag
-- `error_message` - Error message if failed
+Python Script Runner automatically collects 30 different metrics during script execution.
+All metrics are stored in SQLite database and available for analysis and alerting.
 
-### CPU Metrics
-- `cpu_max` - Peak CPU utilization (%)
-- `cpu_avg` - Average CPU utilization (%)
-- `cpu_min` - Minimum CPU utilization (%)
-- `user_time_seconds` - User mode time
-- `system_time_seconds` - System mode time
+## Timing Metrics
 
-### Memory Metrics
-- `memory_max_mb` - Peak memory (MB)
-- `memory_avg_mb` - Average memory (MB)
-- `memory_min_mb` - Minimum memory (MB)
-- `page_faults_minor` - Minor page faults
-- `page_faults_major` - Major page faults
+| Metric | Type | Description |
+|--------|------|-------------|
+| `start_time` | float/int | Start Time |
+| `end_time` | float/int | End Time |
+| `execution_time` | float/int | Execution Time |
 
-### System Resources
-- `num_threads` - Thread count
-- `num_fds` - File descriptor count
-- `voluntary_context_switches` - Voluntary switches
-- `involuntary_context_switches` - Involuntary switches
-- `block_io_read_bytes` - Bytes read
-- `block_io_write_bytes` - Bytes written
+## CPU Metrics
 
-### Output Metrics
-- `stdout_lines` - Lines of stdout
-- `stderr_lines` - Lines of stderr
-- `stdout_size_bytes` - Stdout size
-- `stderr_size_bytes` - Stderr size
+| Metric | Type | Description |
+|--------|------|-------------|
+| `cpu_max` | float/int | Cpu Max |
+| `cpu_avg` | float/int | Cpu Avg |
+| `cpu_min` | float/int | Cpu Min |
+| `user_time` | float/int | User Time |
+| `system_time` | float/int | System Time |
 
-## JSON Output Format
+## Memory Metrics
 
-```json
-{
-  "script_path": "train.py",
-  "script_args": ["--epochs", "100"],
-  "start_time": "2024-11-15T10:30:00.123456",
-  "end_time": "2024-11-15T10:35:45.654321",
-  "execution_time_seconds": 345.531,
-  "exit_code": 0,
-  "success": true,
-  "cpu_max": 87.5,
-  "cpu_avg": 62.3,
-  "memory_max_mb": 512.3,
-  "memory_avg_mb": 412.1,
-  "python_version": "3.11.0",
-  "platform": "linux"
-}
-```
+| Metric | Type | Description |
+|--------|------|-------------|
+| `memory_max` | float/int | Memory Max |
+| `memory_avg` | float/int | Memory Avg |
+| `memory_min` | float/int | Memory Min |
+| `page_faults` | float/int | Page Faults |
 
-## Accessing Metrics
+## System Metrics
 
-### CLI Output
-```bash
-python runner.py script.py --json-output metrics.json
-```
+| Metric | Type | Description |
+|--------|------|-------------|
+| `num_threads` | float/int | Num Threads |
+| `num_fds` | float/int | Num Fds |
+| `context_switches` | float/int | Context Switches |
+| `block_io` | float/int | Block Io |
 
-### Python API
+## Output Metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `stdout_lines` | float/int | Stdout Lines |
+| `stderr_lines` | float/int | Stderr Lines |
+| `exit_code` | float/int | Exit Code |
+| `success` | float/int | Success |
+
+## Querying Metrics
+
+### Via HistoryManager
+
 ```python
-result = runner.run_script()
-metrics = result['metrics']
-print(metrics['cpu_max'])
+from runner import HistoryManager
+
+manager = HistoryManager('metrics.db')
+history = manager.get_execution_history('script.py', days=30)
+metrics = manager.get_aggregated_metrics('script.py')
 ```
 
-### Database Query
-```bash
-python runner.py --query-metric cpu_max --query-script train.py
+### Via TimeSeriesDB
+
+```python
+from runner import TimeSeriesDB, HistoryManager
+
+history_manager = HistoryManager('metrics.db')
+ts_db = TimeSeriesDB(history_manager)
+results = ts_db.query(
+    metric_name='cpu_max',
+    script_path='script.py',
+    days=30
+)
 ```
+
+## Metric Aggregation
+
+```python
+aggs = ts_db.aggregations(
+    metric_name='execution_time_seconds',
+    script_path='script.py'
+)
+# Returns: min, max, avg, median, p50, p75, p90, p95, p99, stddev
+```
+

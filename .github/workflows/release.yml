@@ -47,6 +47,8 @@ jobs:
           NEW_VERSION=$(bash version.sh current)
           echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
           echo "Version bumped to: $NEW_VERSION"
+        env:
+          RELEASE_VERSION: ${{ steps.bump.outputs.new_version || github.event.inputs.bump_type }}
       
       - name: Commit version changes
         run: |
@@ -57,8 +59,26 @@ jobs:
         run: |
           VERSION="${{ steps.bump.outputs.new_version }}"
           git tag -a "v${VERSION}" -m "Release version ${VERSION}"
-          git push origin "v${VERSION}"
-          git push origin main
+          
+          # Push tag with retry logic
+          MAX_ATTEMPTS=5
+          ATTEMPT=0
+          while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+            if git push origin "v${VERSION}" && git push origin main; then
+              echo "✅ Tag and branch pushed successfully"
+              break
+            fi
+            ATTEMPT=$((ATTEMPT + 1))
+            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+              echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: Push failed, retrying..."
+              sleep 2
+            fi
+          done
+          
+          if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
+            echo "❌ Failed to push tag after $MAX_ATTEMPTS attempts"
+            exit 1
+          fi
 
   test:
     runs-on: ubuntu-latest
@@ -326,28 +346,42 @@ jobs:
           retention-days: 5
 
   create-release:
-    needs: [build-python3, build-pypy3]
+    needs: [auto-version, build-python3, build-pypy3]
     runs-on: ubuntu-latest
+    if: always()
     
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       
-      - name: Get latest tag
-        id: version
+      - name: Wait for tag to be available
         run: |
-          # Wait for tag to be available (can take a moment after push)
-          for i in {1..30}; do
-            if git fetch origin --tags 2>/dev/null && git describe --tags --always 2>/dev/null; then
+          echo "Waiting for tag to be available..."
+          MAX_ATTEMPTS=60
+          ATTEMPT=0
+          
+          while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+            git fetch origin --tags
+            if git describe --tags --abbrev=0 2>/dev/null; then
+              echo "✅ Tag is available"
               break
             fi
-            if [ $i -lt 30 ]; then
-              sleep 1
+            ATTEMPT=$((ATTEMPT + 1))
+            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+              echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: Tag not yet available, waiting..."
+              sleep 2
             fi
           done
           
-          # Get the most recent tag
+          if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
+            echo "❌ Timeout waiting for tag"
+            exit 1
+          fi
+      
+      - name: Get latest tag
+        id: version
+        run: |
           TAG=$(git describe --tags --abbrev=0)
           VERSION=${TAG#v}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
@@ -375,11 +409,12 @@ jobs:
         run: |
           RUNNER_VERSION=$(grep "__version__" runner.py | sed 's/__version__ = "\(.*\)"/\1/')
           PYPROJECT_VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          RELEASE_VER="${{ steps.version.outputs.version }}"
           
-          cat > release/RELEASE_NOTES.md << 'EOF'
+          cat > release/RELEASE_NOTES.md << EOF
           # Python Script Runner ${{ github.ref_name }}
           
-          **Version**: ${{ steps.version.outputs.version }}
+          **Version**: $RELEASE_VER
           **Code Version**: $RUNNER_VERSION
           **Build Date**: $(date -u +'%Y-%m-%d %H:%M:%S UTC')
           
@@ -390,27 +425,27 @@ jobs:
           - **python3-runner-${{ github.ref_name }}.zip** - Windows/cross-platform archive
           
           **Requirements**: Python 3.6+
-          **Install**: `bash INSTALL.sh` (Linux/macOS) or `pip install -r requirements.txt` (Windows)
+          **Install**: \`bash INSTALL.sh\` (Linux/macOS) or \`pip install -r requirements.txt\` (Windows)
           
           ### PyPy3
           - **pypy3-runner-${{ github.ref_name }}.tar.gz** - Linux/macOS archive
           - **pypy3-runner-${{ github.ref_name }}.zip** - Windows/cross-platform archive
           
           **Requirements**: PyPy3 3.8+
-          **Install**: `bash INSTALL.sh` (includes PyPy3 detection and auto-setup)
+          **Install**: \`bash INSTALL.sh\` (includes PyPy3 detection and auto-setup)
           **Performance**: 27.3x faster than CPython for CPU-bound workloads
           
           ## What's Included
           
           Each bundle contains:
-          - `runner.py` (v$RUNNER_VERSION) - Main application
-          - `requirements.txt` - Production dependencies (core only)
-          - `requirements-pypy3.txt` - PyPy3-specific optimizations (PyPy3 bundle only)
-          - `README.md` - Full documentation
-          - `LICENSE` - MIT License
-          - `config.example.yaml` - Configuration template
-          - `INSTALL.sh` - Automated setup script
-          - `BUNDLE_README.md` - Quick start guide
+          - \`runner.py\` (v$RUNNER_VERSION) - Main application
+          - \`requirements.txt\` - Production dependencies (core only)
+          - \`requirements-pypy3.txt\` - PyPy3-specific optimizations (PyPy3 bundle only)
+          - \`README.md\` - Full documentation
+          - \`LICENSE\` - MIT License
+          - \`config.example.yaml\` - Configuration template
+          - \`INSTALL.sh\` - Automated setup script
+          - \`BUNDLE_README.md\` - Quick start guide
           
           ## Production Deployment
           
@@ -423,27 +458,27 @@ jobs:
           ## Verification
           
           Verify file integrity using SHA256:
-          ```bash
+          \`\`\`bash
           sha256sum -c SHA256SUMS.txt
-          ```
+          \`\`\`
           
           ## Quick Start
           
           ### Python 3
-          ```bash
+          \`\`\`bash
           tar xzf python3-runner-${{ github.ref_name }}.tar.gz
           cd python3-runner
           bash INSTALL.sh
           python3 runner.py --help
-          ```
+          \`\`\`
           
           ### PyPy3
-          ```bash
+          \`\`\`bash
           tar xzf pypy3-runner-${{ github.ref_name }}.tar.gz
           cd pypy3-runner
           bash INSTALL.sh
           pypy3 runner.py --help
-          ```
+          \`\`\`
           
           ## Support
           - Documentation: See README.md in bundle

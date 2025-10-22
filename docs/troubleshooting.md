@@ -1,92 +1,123 @@
-# Troubleshooting
+# Troubleshooting Guide
+
+> Solutions for common issues and problems
 
 ## Installation Issues
 
 ### ImportError: No module named 'psutil'
 
+**Problem**: psutil dependency is not installed
+
+**Solution**:
 ```bash
 pip install psutil
 ```
 
-### YAML configuration not loading
+### ImportError: No module named 'yaml'
 
+**Problem**: PyYAML is not installed
+
+**Solution**:
 ```bash
 pip install pyyaml
-# Or use JSON format instead
+# Or use JSON config instead:
+python runner.py script.py --json-config config.json
 ```
-
-### Slack/webhook notifications not working
-
-1. Verify webhook URL is correct
-2. Check network connectivity:
-   ```bash
-   curl -X POST <webhook_url>
-   ```
-3. Enable debug logging:
-   ```bash
-   python runner.py script.py --log-level DEBUG
-   ```
 
 ## Runtime Issues
 
-### Database file locked
+### Database Lock Error
 
-Ensure no other processes are using the database:
+**Problem**: `sqlite3.OperationalError: database is locked`
 
+**Causes**:
+- Multiple processes accessing database simultaneously
+- Corrupted WAL files
+
+**Solutions**:
 ```bash
-# Check for open database files
-lsof -i :8000  # if dashboard is running
+# Remove lock files
+rm -f script_runner_history.db-wal
+rm -f script_runner_history.db-shm
 
-# Close dashboard if needed
-kill $(lsof -t -i :8000)
+# Or use separate database per process
+python runner.py script.py --history-db metrics_$$.db
 ```
 
-### Performance gates always failing
+### Memory Usage Growing
 
-1. Verify metric names match JSON output:
-   ```bash
-   python runner.py script.py --json-output metrics.json
-   ```
-2. Check baseline file format is valid JSON
-3. Use `--metrics-list` to see available metrics
+**Problem**: Script Runner using too much memory
 
-### High memory usage
+**Solutions**:
+- Disable real-time monitoring if not needed
+- Archive old database records
+- Use smaller retention period
 
-Reduce sampling interval or archive old data:
+### Alerts Not Triggering
 
+**Problem**: Alert conditions met but no alerts sent
+
+**Solutions**:
+- Check alert configuration syntax
+- Verify notification credentials (email, Slack)
+- Check network connectivity
+- Enable debug logging
+
+## Monitoring Issues
+
+### High CPU Usage
+
+**Problem**: Script Runner using high CPU
+
+**Solutions**:
+- Reduce monitoring frequency
+- Disable unnecessary features
+- Use PyPy for faster execution
+
+### Missing Metrics
+
+**Problem**: Some metrics not collected
+
+**Solutions**:
+- Check script execution time (need minimum time for sampling)
+- Verify monitoring is enabled
+- Check for process termination
+
+## Performance Issues
+
+### Slow Query Performance
+
+**Problem**: Database queries are slow
+
+**Solutions**:
 ```bash
-python runner.py script.py --monitor-interval 1.0
+# Archive old data
+python runner.py --archive-db metrics.db --days 90
 
-# Archive and cleanup old records
-python runner.py --cleanup-old 30 --archive-path ./archive
+# Vacuum database
+sqlite3 metrics.db "VACUUM;"
 ```
 
-### SSH execution failing
+## Debugging
 
-Check connectivity and permissions:
+### Enable Debug Logging
 
-```bash
-# Test SSH connection
-ssh -i ~/.ssh/key user@host "python --version"
+```python
+import logging
+logging.basicConfig(level=logging.DEBUG)
 
-# Ensure runner.py is on remote system
+from runner import ScriptRunner
+runner = ScriptRunner('script.py')
+result = runner.execute()
 ```
 
-## Debug Mode
-
-Enable detailed logging:
+### Check Database
 
 ```bash
-python runner.py script.py \
-    --log-level DEBUG \
-    --suppress-warnings false
+# List tables
+sqlite3 metrics.db ".tables"
+
+# Check recent executions
+sqlite3 metrics.db "SELECT * FROM executions LIMIT 5;"
 ```
 
-## Getting Help
-
-1. Check documentation
-2. Review error logs with `--log-level DEBUG`
-3. Create GitHub issue with:
-   - Configuration file (redacted)
-   - Error logs
-   - Minimal reproduction case

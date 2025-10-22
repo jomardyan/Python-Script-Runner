@@ -1,56 +1,64 @@
 # Quick Start
 
-## Basic Execution
+Get up and running in 5 minutes!
+
+## Installation
 
 ```bash
-python runner.py myscript.py
-python runner.py train.py --epochs 100 --batch-size 32
-python runner.py process_data.py --timeout 300
+git clone https://github.com/jomardyan/Python-Script-Runner.git
+cd Python-Script-Runner
+pip install -r requirements.txt
 ```
 
-## With Monitoring & Alerts
+## Your First Script
 
-```bash
-python runner.py myscript.py \
-    --alert-config "cpu_high:cpu_max>80" \
-    --slack-webhook "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+Create `test_app.py`:
+
+```python
+import time
+print('Starting...')
+for i in range(5):
+    print(f'Step {i+1}')
+    time.sleep(0.5)
+print('Done!')
 ```
 
-## With CI/CD Integration
+Run with monitoring:
 
 ```bash
-python runner.py tests/suite.py \
-    --add-gate cpu_max:90 \
-    --add-gate memory_max_mb:1024 \
-    --junit-output results.xml \
-    --json-output metrics.json
+python runner.py test_app.py
 ```
 
-## With History & Analytics
+## Common Use Cases
+
+### CI/CD with Performance Gates
 
 ```bash
-# Run with history storage
-python runner.py myscript.py --history-db metrics.db
-
-# View execution history
-python runner.py --show-history --history-limit 20
-
-# Analyze trends
-python runner.py --analyze-trend --trend-metric cpu_max --trend-days 30
+python runner.py tests/suite.py \\
+    --add-gate cpu_max:90 \\
+    --add-gate memory_max_mb:1024 \\
+    --junit-output results.xml
 ```
 
-## With Retry Strategy
+### Track Performance Over Time
 
 ```bash
-python runner.py flaky_test.py \
-    --retry 3 \
-    --retry-strategy exponential \
-    --retry-delay 2 \
-    --retry-max-delay 30
+python runner.py script.py \\
+    --history-db metrics.db \\
+    --detect-anomalies \\
+    --analyze-trend
+```
+
+### Slack Alerts
+
+```bash
+python runner.py script.py \\
+    --slack-webhook 'https://hooks.slack.com/services/YOUR/WEBHOOK'
 ```
 
 ## Next Steps
 
-- [Usage Guide](usage.md) for detailed patterns
-- [Configuration](configuration.md) for advanced setup
-- [CLI Reference](cli-reference.md) for all options
+- 📖 [Installation](installation.md)
+- 📚 [Usage Guide](usage.md)
+- 🔧 [CLI Reference](cli-reference.md)
+- ⚙️ [Configuration](configuration.md)

@@ -15,7 +15,9 @@ handle_error() {
 }
 
 VERSION_FILE=".version"
-PACKAGE_VERSION="3.0.0"
+# Allow PACKAGE_VERSION to be set via environment variable (used by GitHub Actions)
+# If not set, it will be determined from pyproject.toml or .version file
+PACKAGE_VERSION="${RELEASE_VERSION:-3.0.0}"
 
 # Validate required files exist
 check_files_exist() {
