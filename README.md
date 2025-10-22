@@ -3,21 +3,12 @@
 <!-- Badges -->
 <div align="center">
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](LICENSE)
-[![Python 3.6+](https://img.shields.io/badge/python-3.6%2B-blue?style=flat-square&logo=python&logoColor=white)](https://www.python.org/downloads/)
-[![Status: Production Ready](https://img.shields.io/badge/status-production--ready-brightgreen?style=flat-square)](https://github.com/jomardyan/Python-Script-Runner/releases)
-
-[![Tests](https://img.shields.io/github/actions/workflow/status/jomardyan/Python-Script-Runner/tests.yml?label=tests&style=flat-square&logo=github)](https://github.com/jomardyan/Python-Script-Runner/actions)
-[![Code Quality](https://img.shields.io/github/actions/workflow/status/jomardyan/Python-Script-Runner/code-quality.yml?label=code%20quality&style=flat-square&logo=github)](https://github.com/jomardyan/Python-Script-Runner/actions)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/jomardyan/Python-Script-Runner/build.yml?label=build&style=flat-square&logo=github)](https://github.com/jomardyan/Python-Script-Runner/actions)
-
-[![Release](https://img.shields.io/github/v/release/jomardyan/Python-Script-Runner?style=flat-square&logo=github)](https://github.com/jomardyan/Python-Script-Runner/releases)
-[![Last Commit](https://img.shields.io/github/last-commit/jomardyan/Python-Script-Runner?style=flat-square&logo=github)](https://github.com/jomardyan/Python-Script-Runner/commits/main)
-[![Contributors](https://img.shields.io/github/contributors/jomardyan/Python-Script-Runner?style=flat-square&logo=github)](https://github.com/jomardyan/Python-Script-Runner/graphs/contributors)
-
-[![PyPy Compatible](https://img.shields.io/badge/PyPy-compatible-brightgreen?style=flat-square&logo=pypy)](https://www.pypy.org/)
-[![Docker Ready](https://img.shields.io/badge/docker-ready-blue?style=flat-square&logo=docker)](https://hub.docker.com/)
-[![K8s Ready](https://img.shields.io/badge/kubernetes-ready-326ce5?style=flat-square&logo=kubernetes)](https://kubernetes.io/)
+[![Python 3.6+](https://img.shields.io/badge/Python-3.6+-blue?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![License MIT](https://img.shields.io/badge/License-MIT-green?style=for-the-badge&logo=github)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/jomardyan/Python-Script-Runner?style=for-the-badge&logo=github&logoColor=white)](https://github.com/jomardyan/Python-Script-Runner/releases)
+[![Tests](https://img.shields.io/github/actions/workflow/status/jomardyan/Python-Script-Runner/tests.yml?label=Tests&style=for-the-badge&logo=github&logoColor=white)](https://github.com/jomardyan/Python-Script-Runner/actions)
+[![Docker Ready](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://hub.docker.com/)
+[![Status: Active](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)](https://github.com/jomardyan/Python-Script-Runner)
 
 </div>
 
