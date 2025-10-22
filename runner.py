@@ -15,7 +15,7 @@ Core Features:
 Executes a target Python script and collects comprehensive execution statistics.
 """
 
-__version__ = "6.3.2"
+__version__ = "6.4.0"
 __author__ = "Python Script Runner Contributors"
 __license__ = "MIT"
 
