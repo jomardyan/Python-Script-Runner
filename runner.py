@@ -15,9 +15,21 @@ Core Features:
 Executes a target Python script and collects comprehensive execution statistics.
 """
 
-__version__ = "6.0.1"
+__version__ = "6.1.0"
 __author__ = "Python Script Runner Contributors"
 __license__ = "MIT"
+
+# Public API - all classes and functions that should be exposed when imported
+__all__ = [
+    "ScriptRunner",
+    "HistoryManager",
+    "AlertManager",
+    "CICDIntegration",
+    "PerformanceAnalyzer",
+    "AdvancedProfiler",
+    "EnterpriseIntegration",
+    "main",
+]
 
 import subprocess
 import sys

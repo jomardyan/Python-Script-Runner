@@ -64,6 +64,105 @@ print(f"Max Memory: {result.metrics['memory_max_mb']}MB")
 
 ---
 
+## 📚 Using as a Python Library
+
+Python Script Runner is designed to be used as both a CLI tool and as a Python library in your own code.
+
+### Basic Library Import
+
+```python
+from runner import ScriptRunner, HistoryManager, AlertManager
+
+# Execute a script and get metrics
+runner = ScriptRunner("data_processing.py")
+result = runner.run_script()
+
+print(f"Success: {result['metrics']['success']}")
+print(f"Duration: {result['metrics']['execution_time_seconds']}s")
+```
+
+### Advanced Library Usage
+
+```python
+from runner import ScriptRunner, AlertManager
+
+# Create a runner with configuration
+runner = ScriptRunner(
+    script_path="ml_training.py",
+    timeout_seconds=3600,
+    max_retries=3
+)
+
+# Configure alerts
+runner.alert_manager.configure_slack("https://hooks.slack.com/...")
+runner.alert_manager.add_alert(
+    name="high_memory",
+    condition="memory_max_mb > 2048",
+    severity="WARNING"
+)
+
+# Execute with retry
+result = runner.run_script(retry_on_failure=True)
+metrics = result['metrics']
+
+if not metrics['success']:
+    print(f"Script failed after {metrics.get('attempt_number', 1)} attempts")
+else:
+    print(f"✅ Completed in {metrics['execution_time_seconds']:.2f}s")
+```
+
+### Access Historical Data
+
+```python
+from runner import HistoryManager
+
+# Query historical metrics
+history = HistoryManager("metrics.db")
+stats = history.get_aggregated_metrics("cpu_max", days=7)
+
+print(f"Last 7 days CPU max average: {stats['avg']:.1f}%")
+print(f"Peak CPU: {stats['max']:.1f}%")
+```
+
+### CI/CD Integration
+
+```python
+from runner import ScriptRunner, CICDIntegration
+
+runner = ScriptRunner("tests/suite.py")
+runner.cicd_integration.add_performance_gate("cpu_max", max_value=90)
+runner.cicd_integration.add_performance_gate("memory_max_mb", max_value=1024)
+
+result = runner.run_script()
+gates_passed, gate_results = runner.cicd_integration.check_gates(result['metrics'])
+
+if not gates_passed:
+    print("Performance gates failed:")
+    for gate_result in gate_results:
+        print(f"  ❌ {gate_result}")
+    exit(1)
+else:
+    print("✅ All performance gates passed!")
+```
+
+### Available Classes for Import
+
+All of these can be imported directly:
+
+```python
+from runner import (
+    ScriptRunner,            # Main class for running scripts
+    HistoryManager,          # SQLite-based metrics history
+    AlertManager,            # Email/Slack/webhook alerting
+    CICDIntegration,         # Performance gates and CI/CD reporting
+    PerformanceAnalyzer,     # Statistical analysis and trending
+    AdvancedProfiler,        # CPU/Memory/I/O profiling
+    EnterpriseIntegration,   # Datadog/Prometheus/New Relic
+)
+```
+
+---
+
 ## ✨ Key Features
 
 - **🔍 Real-Time Monitoring** - CPU, memory, I/O tracking with <2% overhead
