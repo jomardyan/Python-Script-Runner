@@ -7,6 +7,7 @@
 [![PyPI Version](https://img.shields.io/pypi/v/python-script-runner?style=flat-square&logo=pypi&logoColor=white)](https://pypi.org/project/python-script-runner/)
 [![PyPI Downloads](https://img.shields.io/pypi/dm/python-script-runner?style=flat-square&logo=pypi)](https://pypi.org/project/python-script-runner/)
 [![Tests](https://img.shields.io/github/actions/workflow/status/jomardyan/Python-Script-Runner/tests.yml?label=Tests&style=flat-square&logo=github&logoColor=white)](https://github.com/jomardyan/Python-Script-Runner/actions)
+[![GitHub Packages](https://img.shields.io/badge/GitHub_Packages-📦-blue?style=flat-square)](https://github.com/jomardyan/Python-Script-Runner/packages)
 [![Status: Active](https://img.shields.io/badge/Status-Active-brightgreen?style=flat-square)](https://github.com/jomardyan/Python-Script-Runner)
 
 Transform script execution into a production-ready operation with comprehensive observability, intelligent alerting, CI/CD integration, and advanced analytics.
@@ -699,6 +700,27 @@ The runner automatically collects and analyzes:
 | `YAML config not loading` | `pip install pyyaml` |
 | `Slack alerts not working` | Verify webhook URL and network access |
 | `Database locked error` | Ensure no other processes are using the DB |
+
+## 📦 Package Distribution
+
+Python Script Runner is available on **two major registries**:
+
+### PyPI (Primary - Public)
+
+- **URL**: https://pypi.org/project/python-script-runner/
+- **Install**: `pip install python-script-runner`
+- **Discoverability**: Searchable on pypi.org
+- **Best for**: Public use, standard installations
+
+### GitHub Packages (Secondary - Backup)
+
+- **URL**: https://github.com/jomardyan/Python-Script-Runner/packages
+- **Install**: `pip install --extra-index-url https://python.pkg.github.com/jomardyan python-script-runner`
+- **Best for**: Organization control, private deployments
+
+Both registries receive **automatic updates** via GitHub Actions on every release!
+
+See [.github/AUTOMATION_SETUP.md](.github/AUTOMATION_SETUP.md) for release procedures.
 
 ## Contributing
 
