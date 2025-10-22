@@ -249,8 +249,7 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           echo "Building Windows EXE..."
           
-          pyinstaller --specpath dist/windows runner.spec \
-            --onefile \
+          pyinstaller runner.spec \
             --distpath dist/windows/dist \
             --workpath dist/windows/build
           
