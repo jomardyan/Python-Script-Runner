@@ -722,7 +722,7 @@ MIT License - see [LICENSE](LICENSE) for details
 
 ## Project Status
 
-- **Version**: 6.0.0
+- **Version**: 6.1.0
 - **Status**: Production Ready ✅
 - **Python Support**: 3.6 - 3.11 (CPython & PyPy)
 - **License**: MIT
