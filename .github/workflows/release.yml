@@ -355,36 +355,44 @@ jobs:
         with:
           fetch-depth: 0
       
-      - name: Wait for tag to be available
-        run: |
-          echo "Waiting for tag to be available..."
-          MAX_ATTEMPTS=60
-          ATTEMPT=0
-          
-          while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-            git fetch origin --tags
-            if git describe --tags --abbrev=0 2>/dev/null; then
-              echo "✅ Tag is available"
-              break
-            fi
-            ATTEMPT=$((ATTEMPT + 1))
-            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
-              echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: Tag not yet available, waiting..."
-              sleep 2
-            fi
-          done
-          
-          if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
-            echo "❌ Timeout waiting for tag"
-            exit 1
-          fi
-      
-      - name: Get latest tag
+      - name: Determine version
         id: version
         run: |
-          TAG=$(git describe --tags --abbrev=0)
-          VERSION=${TAG#v}
+          # If triggered by tag push, use ref_name
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG="${{ github.ref_name }}"
+            VERSION=${TAG#v}
+          else
+            # If triggered by workflow_dispatch, wait for the tag created by auto-version
+            echo "Waiting for tag to be available..."
+            MAX_ATTEMPTS=60
+            ATTEMPT=0
+            
+            while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+              git fetch origin --tags --force
+              # Get the most recently created tag
+              TAG=$(git tag --sort=-creatordate --list 'v*.*.*' | head -1)
+              if [ -n "$TAG" ]; then
+                VERSION=${TAG#v}
+                echo "✅ Tag found: $TAG"
+                break
+              fi
+              
+              ATTEMPT=$((ATTEMPT + 1))
+              if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+                echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: Tag not yet available, waiting..."
+                sleep 2
+              fi
+            done
+            
+            if [ -z "$TAG" ]; then
+              echo "❌ Timeout waiting for tag"
+              exit 1
+            fi
+          fi
+          
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "Release version: $VERSION"
           echo "Tag: $TAG"
       
@@ -396,20 +404,25 @@ jobs:
       - name: Prepare release files
         run: |
           mkdir -p release
-          find artifacts -type f -name '*.tar.gz' -o -name '*.zip' | xargs -I {} cp {} release/
+          find artifacts -type f \( -name '*.tar.gz' -o -name '*.zip' \) -exec cp {} release/ \;
           ls -lh release/
       
       - name: Create checksums
         run: |
           cd release
-          sha256sum * > SHA256SUMS.txt
-          cat SHA256SUMS.txt
+          if [ $(ls -1 *.tar.gz *.zip 2>/dev/null | wc -l) -gt 0 ]; then
+            sha256sum *.tar.gz *.zip > SHA256SUMS.txt 2>/dev/null || sha256sum * > SHA256SUMS.txt
+            cat SHA256SUMS.txt
+          else
+            echo "No artifacts found"
+          fi
       
       - name: Generate release notes
         run: |
           RUNNER_VERSION=$(grep "__version__" runner.py | sed 's/__version__ = "\(.*\)"/\1/')
           PYPROJECT_VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
           RELEASE_VER="${{ steps.version.outputs.version }}"
+          TAG_NAME="${{ steps.version.outputs.tag }}"
           
           cat > release/RELEASE_NOTES.md << EOF
           # Python Script Runner ${{ github.ref_name }}
@@ -490,7 +503,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: v${{ steps.version.outputs.version }}
+          tag_name: ${{ steps.version.outputs.tag }}
           files: |
             release/python3-runner-*.tar.gz
             release/python3-runner-*.zip
