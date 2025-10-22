@@ -74,25 +74,73 @@ def init_managers(db_path: str = "script_runner_history.db"):
         raise
 
 
-async def broadcast_metrics(data: Dict[str, Any]):
-    """Broadcast metrics to all connected WebSocket clients with error handling"""
+async def broadcast_metrics(data: Dict[str, Any], retry_count: int = 3):
+    """Broadcast metrics to all connected WebSocket clients with retry mechanism
+    
+    Features:
+    - Exponential backoff retry for temporary failures
+    - Proper error logging at ERROR level
+    - Automatic cleanup of disconnected clients
+    - Timeout handling with configurable retries
+    
+    Args:
+        data: Metrics data to broadcast
+        retry_count: Number of retry attempts for each client
+    """
     disconnected = []
+    broadcast_stats = {'success': 0, 'failed': 0, 'retried': 0}
+    
     for client in connected_clients:
-        try:
-            await asyncio.wait_for(client.send_json(data), timeout=5.0)
-        except asyncio.TimeoutError:
-            logger.warning("WebSocket send timeout")
-            disconnected.append(client)
-        except Exception as e:
-            logger.debug(f"Failed to send metrics to client: {e}")
+        success = False
+        last_error = None
+        
+        for attempt in range(retry_count):
+            try:
+                await asyncio.wait_for(client.send_json(data), timeout=5.0)
+                success = True
+                broadcast_stats['success'] += 1
+                break
+                
+            except asyncio.TimeoutError as e:
+                last_error = e
+                logger.warning(f"WebSocket send timeout (attempt {attempt+1}/{retry_count})")
+                broadcast_stats['retried'] += 1
+                
+                if attempt < retry_count - 1:
+                    # Exponential backoff: 0.1s, 0.2s, 0.4s
+                    await asyncio.sleep(0.1 * (2 ** attempt))
+                    
+            except asyncio.CancelledError as e:
+                logger.error(f"WebSocket send cancelled (attempt {attempt+1}/{retry_count})")
+                last_error = e
+                break
+                
+            except Exception as e:
+                last_error = e
+                logger.error(f"WebSocket send failed (attempt {attempt+1}/{retry_count}): {type(e).__name__}: {e}")
+                broadcast_stats['retried'] += 1
+                
+                if attempt < retry_count - 1:
+                    # Exponential backoff
+                    await asyncio.sleep(0.1 * (2 ** attempt))
+        
+        if not success:
+            broadcast_stats['failed'] += 1
+            logger.error(f"WebSocket send permanently failed after {retry_count} attempts: {last_error}")
             disconnected.append(client)
     
-    # Remove disconnected clients
+    # Remove permanently disconnected clients
     for client in disconnected:
         try:
             connected_clients.remove(client)
+            logger.info(f"Removed disconnected WebSocket client. Remaining: {len(connected_clients)}")
         except ValueError:
             pass
+    
+    # Log broadcast statistics
+    if broadcast_stats['retried'] > 0 or broadcast_stats['failed'] > 0:
+        logger.info(f"Broadcast stats - Success: {broadcast_stats['success']}, Retried: {broadcast_stats['retried']}, Failed: {broadcast_stats['failed']}")
+
 
 
 def get_execution_statistics(limit: int = 1000) -> Dict[str, Any]:
