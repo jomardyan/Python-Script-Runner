@@ -62,7 +62,7 @@ OPTIONS = {
         'CFBundleIdentifier': "com.python-script-runner.app",
         'CFBundleVersion': version,
         'CFBundleShortVersionString': version,
-        'NSHumanReadableCopyright': u"Copyright © 2025, Python Script Runner Contributors, MIT License"
+        'NSHumanReadableCopyright': u"Copyright © 2025, Hayk Jomardyan, MIT License"
     }
 }
 
@@ -72,7 +72,7 @@ setup(
     description="Production-grade Python script execution engine with comprehensive monitoring, alerting, analytics, and enterprise integrations",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    author="Python Script Runner Contributors",
+    author="Hayk Jomardyan",
     license="MIT",
     url="https://github.com/jomardyan/Python-Script-Runner",
     project_urls={

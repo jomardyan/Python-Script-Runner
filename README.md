@@ -12,6 +12,158 @@
 
 Transform script execution into a production-ready operation with comprehensive observability, intelligent alerting, CI/CD integration, and advanced analytics.
 
+---
+
+## 🎯 Who Is This For?
+
+Python Script Runner is designed for **developers, data engineers, DevOps teams, and organizations** who need production-grade execution monitoring for Python scripts. Whether you're running scripts locally, in CI/CD pipelines, or on production servers, this tool provides enterprise-level observability without the complexity.
+
+### Perfect For:
+
+- **🔬 Data Scientists & ML Engineers** - Monitor training scripts, data pipelines, and model inference
+- **⚙️ DevOps & Platform Engineers** - Track maintenance scripts, automation tasks, and deployment jobs
+- **🏢 Enterprise Teams** - Ensure compliance, SLA monitoring, and performance tracking
+- **🚀 Startup/Scale-Up Teams** - Production-ready monitoring without expensive APM tools
+- **🧪 QA & Test Engineers** - Performance regression testing and CI/CD integration
+- **📊 Data Engineers** - ETL pipeline monitoring and data quality checks
+
+---
+
+## 💼 Real-World Use Cases
+
+### 1. **Data Pipeline Monitoring**
+```bash
+# Monitor nightly ETL job with alerting
+python -m runner etl_pipeline.py \
+  --history-db /var/log/etl-metrics.db \
+  --alert-config "runtime_sla:execution_time_seconds>3600" \
+  --slack-webhook "$SLACK_WEBHOOK" \
+  --email-to data-team@company.com
+```
+**Benefit**: Catch performance degradation before it impacts downstream systems. Historical trends show when pipelines are slowing down.
+
+### 2. **ML Model Training with Performance Gates**
+```bash
+# Ensure training stays within resource limits
+python -m runner train_model.py \
+  --add-gate memory_max_mb:8192 \
+  --add-gate cpu_max:90 \
+  --timeout 7200 \
+  --retry-strategy exponential
+```
+**Benefit**: Prevent runaway training jobs from consuming cluster resources. Auto-retry with exponential backoff on transient failures.
+
+### 3. **CI/CD Performance Regression Testing**
+```yaml
+# GitHub Actions workflow
+- name: Run tests with performance benchmarks
+  run: |
+    python -m runner tests/integration_suite.py \
+      --junit-output test-results.xml \
+      --baseline-db baseline-metrics.db \
+      --add-gate execution_time_seconds:60
+```
+**Benefit**: Block deployments if performance degrades beyond baseline. JUnit output integrates with CI/CD dashboards.
+
+### 4. **Production Maintenance Scripts**
+```python
+from runner import ScriptRunner
+
+# Database backup script with monitoring
+runner = ScriptRunner("backup_database.py")
+
+# Configure alerts via config file or add programmatically
+# For config file approach, see config.example.yaml
+result = runner.run_script()
+
+if not result['metrics']['success']:
+    # Handle failure, send alerts, etc.
+    print(f"Backup failed with exit code: {result['exit_code']}")
+```
+**Benefit**: Immediate alerts when critical scripts fail. Historical metrics show backup duration trends.
+
+### 5. **Distributed Task Execution**
+```bash
+# Run data processing on remote server
+python -m runner process_data.py \
+  --ssh-host worker-node-01.prod \
+  --ssh-user deploy \
+  --ssh-key ~/.ssh/prod-key \
+  --json-output results.json
+```
+**Benefit**: Monitor remote script execution with local observability. Perfect for distributed data processing.
+
+### 6. **API Integration Testing**
+```bash
+# Load test API endpoints with retry logic
+python -m runner api_load_test.py \
+  --max-retries 3 \
+  --retry-strategy fibonacci \
+  --detect-anomalies \
+  --history-db load-test-history.db
+```
+**Benefit**: ML-powered anomaly detection identifies unusual response times. Retry logic handles transient network failures.
+
+### 7. **Scheduled Reporting Jobs**
+```bash
+# Daily report generation with SLA monitoring
+0 9 * * * python -m runner generate_daily_report.py \
+  --alert-config "slow_report:execution_time_seconds>600" \
+  --email-to executives@company.com \
+  --attach-metrics
+```
+**Benefit**: Ensures reports are generated on time. Email includes performance metrics alongside business reports.
+
+### 8. **Kubernetes CronJob Monitoring**
+```yaml
+# K8s CronJob with integrated monitoring
+spec:
+  containers:
+  - name: data-processor
+    command: 
+    - python
+    - -m
+    - runner
+    - process_data.py
+    - --prometheus-pushgateway
+    - http://prometheus:9091
+    - --add-gate
+    - memory_max_mb:2048
+```
+**Benefit**: Push metrics to Prometheus without changing application code. Resource gates prevent pod OOM kills.
+
+### 9. **Multi-Environment Testing**
+```bash
+# Run same script across dev/staging/prod with different configs
+for env in dev staging prod; do
+  python -m runner smoke_test.py \
+    --config configs/$env.yaml \
+    --history-db metrics-$env.db \
+    --tag environment=$env
+done
+```
+**Benefit**: Compare performance across environments. Identify environment-specific bottlenecks.
+
+### 10. **Compliance & Audit Logging**
+```python
+from runner import ScriptRunner
+
+runner = ScriptRunner(
+    "process_pii_data.py",
+    history_db="audit-trail.db"
+)
+result = runner.run_script()
+
+# Immutable audit trail with full execution metrics
+print(f"Execution ID: {result.get('execution_id', 'N/A')}")
+print(f"Start Time: {result['metrics']['start_time']}")
+print(f"Exit Code: {result['exit_code']}")
+print(f"Success: {result['metrics']['success']}")
+```
+**Benefit**: SQLite database provides immutable audit trail for SOC2/HIPAA compliance. Every execution logged with full context.
+
+---
+
 ## 🚀 Quick Start
 
 ### Install via pip (Recommended)
@@ -55,12 +207,12 @@ No configuration needed - just run and get full observability by default!
 from runner import ScriptRunner
 
 runner = ScriptRunner("myscript.py")
-result = runner.execute()
+result = runner.run_script()
 
-print(f"Exit Code: {result.exit_code}")
-print(f"Execution Time: {result.metrics['execution_time_seconds']}s")
-print(f"Max CPU: {result.metrics['cpu_max']}%")
-print(f"Max Memory: {result.metrics['memory_max_mb']}MB")
+print(f"Exit Code: {result['exit_code']}")
+print(f"Execution Time: {result['metrics']['execution_time_seconds']}s")
+print(f"Max CPU: {result['metrics']['cpu_max']}%")
+print(f"Max Memory: {result['metrics']['memory_max_mb']}MB")
 ```
 
 ---
@@ -90,9 +242,15 @@ from runner import ScriptRunner, AlertManager
 # Create a runner with configuration
 runner = ScriptRunner(
     script_path="ml_training.py",
-    timeout_seconds=3600,
-    max_retries=3
+    timeout_seconds=3600
 )
+
+# Configure retry behavior
+runner.retry_config = {
+    'strategy': 'exponential',
+    'max_attempts': 3,
+    'base_delay': 1.0
+}
 
 # Configure alerts
 runner.alert_manager.configure_slack("https://hooks.slack.com/...")
@@ -218,6 +376,51 @@ git clone https://github.com/jomardyan/Python-Script-Runner.git
 cd Python-Script-Runner
 pip install -e .
 ```
+
+### 🔧 Quick Setup Scripts (Development)
+
+For developers working from source, we provide cross-platform setup scripts:
+
+#### **Bash (Linux/macOS)**
+```bash
+# Interactive setup with virtual environment
+source ./setup.sh
+
+# Features:
+# - Auto-detects Python 3.6+
+# - Creates/activates virtual environment
+# - Installs all dependencies
+# - Multiple setup modes (develop/install/build)
+```
+
+#### **PowerShell (Windows/macOS/Linux)**
+```powershell
+# Cross-platform interactive setup
+.\setup.ps1
+
+# Features:
+# - Works on Windows, macOS, and Linux
+# - Smart Python detection (python3/python/py)
+# - Handles execution policies automatically
+# - Supports py2exe for Windows executables
+```
+
+#### **Interactive Config Builder**
+```bash
+# Generate config.yaml interactively
+.\build-config.ps1   # PowerShell (all platforms)
+
+# Wizard-based configuration for:
+# - Alert rules (CPU, memory, time thresholds)
+# - Performance gates (CI/CD limits)
+# - Notifications (Slack, email, webhooks)
+# - Database settings (metrics storage)
+# - Retry strategies (exponential, fibonacci)
+```
+
+**When to use:**
+- `setup.sh` / `setup.ps1`: First-time development environment setup
+- `build-config.ps1`: Creating custom monitoring configurations
 
 ### Pre-Compiled Executables
 
@@ -517,7 +720,7 @@ MIT License - see [LICENSE](LICENSE) for details
 
 ## 📋 Project Status
 
-- **Latest Version**: 6.0.1
+- **Latest Version**: 6.4.3
 - **Status**: Production Ready ✅
 - **Python Support**: 3.6 - 3.11 (CPython & PyPy)
 - **License**: MIT
@@ -540,12 +743,6 @@ cat metrics.json  # if you used --json-output
 
 ---
 
-Made with ❤️ by Python Script Runner Contributors
-
-[**Install Now**](<https://pypi.org/project/python-script-runner/>) • [**GitHub**](<https://github.com/jomardyan/Python-Script-Runner>) • [**Report Issue**](<https://github.com/jomardyan/Python-Script-Runner/issues>)
-
----
-
-Made with ❤️ by Python Script Runner Contributors
+Made with ❤️ by Hayk Jomardyan
 
 [**Install Now**](https://pypi.org/project/python-script-runner/) • [**GitHub**](https://github.com/jomardyan/Python-Script-Runner) • [**Report Issue**](https://github.com/jomardyan/Python-Script-Runner/issues)
