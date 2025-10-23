@@ -372,7 +372,7 @@ service:
 ```python
 runner.tracing_attributes = {
     'deployment.environment': 'production',
-    'service.version': '7.0.0',
+    'service.version': '7.0.1',
     'custom.team': 'platform'
 }
 ```

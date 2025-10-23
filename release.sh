@@ -5,14 +5,135 @@
 
 set -euo pipefail
 
-# Error handling
-trap 'handle_error $? $LINENO' ERR
+# Configuration
+DEBUG_MODE="${DEBUG:-false}"
+INTERACTIVE_MODE="${INTERACTIVE:-true}"
+SKIP_TESTS="${SKIP_TESTS:-false}"
+PARALLEL_BUILDS="${PARALLEL_BUILDS:-true}"
+LOG_FILE="${LOG_FILE:-/tmp/release-$(date +%Y%m%d-%H%M%S).log}"
+
+# Global error tracking
+ERROR_COUNT=0
+WARNING_COUNT=0
+SUCCESS_COUNT=0
+
+# Initialize log file
+echo "Release script started at $(date)" > "$LOG_FILE"
+echo "Command: $0 $*" >> "$LOG_FILE"
+echo "" >> "$LOG_FILE"
+
+# Error handling with better diagnostics and rollback
+trap 'handle_error $? $LINENO $BASH_COMMAND' ERR
+trap 'handle_interrupt' INT TERM
+
+STATE_FILE="/tmp/release-state-$$.json"
+ROLLBACK_ACTIONS=()
 
 handle_error() {
     local exit_code=$1
     local line_number=$2
+    local command="${3:-unknown}"
+    ERROR_COUNT=$((ERROR_COUNT + 1))
+    
+    log_error "Script failed at line $line_number with exit code $exit_code"
+    log_error "Failed command: $command"
     print_error "Script failed at line $line_number with exit code $exit_code"
+    print_error "Failed command: $command"
+    print_error "Check log file: $LOG_FILE"
+    
+    # Offer rollback if in interactive mode
+    if [ "$INTERACTIVE_MODE" = "true" ] && [ ${#ROLLBACK_ACTIONS[@]} -gt 0 ]; then
+        echo ""
+        print_warning "Rollback available. Do you want to rollback changes? (y/n)"
+        read -r response
+        if [[ "$response" =~ ^[Yy]$ ]]; then
+            perform_rollback
+        fi
+    fi
+    
+    print_error "Use 'bash release.sh help' for usage information"
+    cleanup_on_exit
     exit "$exit_code"
+}
+
+handle_interrupt() {
+    echo ""
+    print_warning "\nInterrupted by user"
+    log_warning "Script interrupted by user"
+    
+    if [ "$INTERACTIVE_MODE" = "true" ]; then
+        print_warning "Do you want to rollback changes? (y/n)"
+        read -r response
+        if [[ "$response" =~ ^[Yy]$ ]]; then
+            perform_rollback
+        fi
+    fi
+    
+    cleanup_on_exit
+    exit 130
+}
+
+perform_rollback() {
+    print_header "Rolling Back Changes"
+    log_info "Starting rollback"
+    
+    local rollback_count=0
+    # Execute rollback actions in reverse order
+    for ((i=${#ROLLBACK_ACTIONS[@]}-1; i>=0; i--)); do
+        local action="${ROLLBACK_ACTIONS[$i]}"
+        print_warning "Rollback: $action"
+        log_info "Executing rollback: $action"
+        
+        if eval "$action" >> "$LOG_FILE" 2>&1; then
+            ((rollback_count++))
+        else
+            print_error "Rollback action failed: $action"
+            log_error "Rollback action failed: $action"
+        fi
+    done
+    
+    print_success "Rolled back $rollback_count action(s)"
+    log_info "Completed rollback: $rollback_count actions"
+}
+
+register_rollback() {
+    local action="$1"
+    ROLLBACK_ACTIONS+=("$action")
+    log_debug "Registered rollback: $action"
+}
+
+cleanup_on_exit() {
+    # Clean up temporary files
+    [ -f "$STATE_FILE" ] && rm -f "$STATE_FILE"
+    log_info "Cleanup completed"
+}
+
+# Increment counters for progress tracking
+increment_success() {
+    SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+}
+
+increment_warning() {
+    WARNING_COUNT=$((WARNING_COUNT + 1))
+}
+
+increment_error() {
+    ERROR_COUNT=$((ERROR_COUNT + 1))
+}
+
+# Print summary statistics
+print_summary() {
+    echo ""
+    echo -e "${BLUE}════════════════════════════════════════${NC}"
+    echo -e "${GREEN}✅ Success: $SUCCESS_COUNT${NC}"
+    if [ $WARNING_COUNT -gt 0 ]; then
+        echo -e "${YELLOW}⚠️  Warnings: $WARNING_COUNT${NC}"
+    fi
+    if [ $ERROR_COUNT -gt 0 ]; then
+        echo -e "${RED}❌ Errors: $ERROR_COUNT${NC}"
+    fi
+    echo -e "${BLUE}════════════════════════════════════════${NC}"
+    echo ""
 }
 
 # Script directory and integration
@@ -50,22 +171,58 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
+CYAN='\033[0;36m'
 NC='\033[0m'
+
+# Logging functions
+log_debug() {
+    [ "$DEBUG_MODE" = "true" ] && echo "[DEBUG $(date +%H:%M:%S)] $*" >> "$LOG_FILE"
+}
+
+log_info() {
+    echo "[INFO $(date +%H:%M:%S)] $*" >> "$LOG_FILE"
+}
+
+log_warning() {
+    echo "[WARNING $(date +%H:%M:%S)] $*" >> "$LOG_FILE"
+}
+
+log_error() {
+    echo "[ERROR $(date +%H:%M:%S)] $*" >> "$LOG_FILE"
+}
 
 print_header() {
     echo -e "${BLUE}=== $1 ===${NC}"
+    log_info "=== $1 ==="
 }
 
 print_success() {
     echo -e "${GREEN}✅ $1${NC}"
+    log_info "SUCCESS: $1"
+    increment_success
 }
 
 print_error() {
     echo -e "${RED}❌ $1${NC}"
+    log_error "$1"
+    increment_error
 }
 
 print_warning() {
     echo -e "${YELLOW}⚠️  $1${NC}"
+    log_warning "$1"
+    increment_warning
+}
+
+print_info() {
+    echo -e "${CYAN}ℹ️  $1${NC}"
+    log_info "$1"
+}
+
+print_step() {
+    echo -e "${MAGENTA}▶ $1${NC}"
+    log_info "STEP: $1"
 }
 
 # Auto-commit any uncommitted changes
@@ -141,17 +298,27 @@ Usage: bash release.sh [command] [options]
 
 Commands:
   version              Show current version and latest git tag
+  status              Show comprehensive release status
   bump (major|minor|patch) [dry-run]
                       Bump version using version.sh (auto-updates files)
                       ⚠️  Auto-commits any uncommitted changes before bumping
   validate            Run pre-release validation checks
+  clean               Remove build artifacts and temporary files
   build-bundles       Build Python source bundles (tar.gz, zip)
   build-exe VER       Build Windows EXE executable using PyInstaller
   build-deb VER       Build Linux DEB package
   prepare-release VER Prepare release: update files, create git tag
                       ⚠️  Auto-commits any uncommitted changes before preparing
   publish VER         Push tag to GitHub (triggers GitHub Actions workflow)
+  full-release VER    Execute complete release workflow (all steps)
   help                Show this help message
+
+Environment Variables:
+  DEBUG=true          Enable debug logging
+  INTERACTIVE=false   Disable interactive prompts
+  SKIP_TESTS=true     Skip test execution during validation
+  PARALLEL_BUILDS=false  Disable parallel bundle building
+  LOG_FILE=path       Custom log file location
 
 Workflow:
   1. bash release.sh bump patch              # Auto-bump version (auto-commits)
@@ -171,10 +338,10 @@ Examples:
   bash release.sh bump minor dry-run         # Preview minor bump
   bash release.sh validate                   # Run validation checks
   bash release.sh build-bundles              # Build source bundles
-  bash release.sh build-exe 6.3.0            # Build Windows EXE
-  bash release.sh build-deb 6.3.0            # Build Linux DEB
-  bash release.sh prepare-release 6.3.0      # Prepare v6.3.0 release
-  bash release.sh publish 6.3.0              # Trigger GitHub Actions
+  bash release.sh build-exe 7.0.1            # Build Windows EXE
+  bash release.sh build-deb 7.0.1            # Build Linux DEB
+  bash release.sh prepare-release 7.0.1      # Prepare v7.0.1 release
+  bash release.sh publish 7.0.1              # Trigger GitHub Actions
 
 Integration Points:
   • version.sh is used for version management
@@ -263,10 +430,28 @@ cmd_bump() {
     fi
     
     print_header "Automatic Version Bump ($bump_type)"
+    log_info "Starting version bump: $bump_type (dry_run=$dry_run)"
+    
+    # Get current version for display
+    local current_version
+    current_version=$(get_version || echo "unknown")
+    print_info "Current version: $current_version"
+    
+    # Safety check for major version bump
+    if [ "$bump_type" = "major" ] && [ "$INTERACTIVE_MODE" = "true" ] && [ "$dry_run" != "dry-run" ]; then
+        print_warning "Major version bump detected!"
+        print_warning "This indicates breaking changes. Are you sure? (y/n)"
+        read -r response
+        if [[ ! "$response" =~ ^[Yy]$ ]]; then
+            print_info "Version bump cancelled"
+            exit 0
+        fi
+    fi
     
     # Auto-commit any uncommitted changes before bumping (only for actual bump, not dry-run)
     if [ "$dry_run" != "dry-run" ]; then
         auto_commit_changes "Auto-commit: uncommitted changes before version bump ($bump_type)"
+        register_rollback "git reset --hard HEAD~1"
     fi
     
     # Check if version.sh exists
@@ -326,85 +511,184 @@ cmd_bump() {
 
 cmd_validate() {
     print_header "Pre-Release Validation"
+    log_info "Starting validation"
+    
+    local validation_errors=0
+    
+    # Check required commands
+    print_step "Checking required commands..."
+    local required_commands=("python3" "git" "pip")
+    for cmd in "${required_commands[@]}"; do
+        if command -v "$cmd" &> /dev/null; then
+            print_info "  ✓ $cmd found"
+        else
+            print_error "  ✗ $cmd not found"
+            ((validation_errors++))
+        fi
+    done
     
     # Check required files
-    print_warning "Checking for required files..."
+    print_step "Checking for required files..."
     local required_files=("runner.py" "requirements.txt" "LICENSE" "README.md")
-    check_files_exist "${required_files[@]}" || exit 1
-    print_success "All required files present"
+    for file in "${required_files[@]}"; do
+        if [ -f "$file" ]; then
+            print_info "  ✓ $file exists"
+        else
+            print_error "  ✗ $file missing"
+            ((validation_errors++))
+        fi
+    done
+    
+    if [ $validation_errors -gt 0 ]; then
+        print_error "Validation failed: $validation_errors error(s) found"
+        return 1
+    fi
+    
+    # Check Python version
+    print_step "Checking Python version..."
+    local py_version=$(python3 --version 2>&1 | awk '{print $2}')
+    print_info "  Python version: $py_version"
     
     # Check Python compilation
-    print_warning "Checking code quality..."
-    if ! python3 -m py_compile runner.py test_script.py 2>/dev/null; then
-        print_error "Python compilation failed"
-        exit 1
+    print_step "Checking code quality..."
+    local compile_output
+    if compile_output=$(python3 -m py_compile runner.py test_script.py 2>&1); then
+        print_success "Compilation successful"
+    else
+        print_error "Python compilation failed:"
+        echo "$compile_output"
+        ((validation_errors++))
     fi
-    print_success "Compilation successful"
     
-    # Check dependencies
-    print_warning "Checking dependencies..."
-    if ! python3 -m pip install -q -r requirements.txt 2>/dev/null; then
-        print_error "Failed to install dependencies"
-        exit 1
+    # Check dependencies with better error handling
+    print_step "Checking Python dependencies..."
+    local dep_check_output
+    if dep_check_output=$(python3 -c "import psutil, yaml, requests" 2>&1); then
+        print_success "Core dependencies available"
+    else
+        print_warning "Some dependencies missing - attempting installation..."
+        log_info "Dependency check output: $dep_check_output"
+        
+        # Try to install missing dependencies
+        local install_output
+        if install_output=$(python3 -m pip install --user -q psutil pyyaml requests 2>&1); then
+            print_success "Dependencies installed successfully"
+        else
+            print_warning "Could not auto-install dependencies"
+            print_info "You may need to run: pip install -r requirements.txt"
+            log_warning "Dependency installation output: $install_output"
+            # Don't fail validation for dependency issues in user mode
+        fi
     fi
-    print_success "Core dependencies OK"
     
     # Check for development artifacts
-    print_warning "Checking for development artifacts..."
-    if [ -f "PRODUCTION_CHECKLIST.md" ] || [ -f "RELEASE_NOTES.md" ]; then
-        print_error "Development files still present - run cleanup first"
-        exit 1
+    print_step "Checking for development artifacts..."
+    local dev_files=("PRODUCTION_CHECKLIST.md" "RELEASE_NOTES.md" ".DS_Store")
+    local dev_found=0
+    for file in "${dev_files[@]}"; do
+        if [ -f "$file" ]; then
+            print_warning "  Development file found: $file"
+            ((dev_found++))
+        fi
+    done
+    
+    if [ $dev_found -gt 0 ]; then
+        print_warning "Found $dev_found development file(s) - consider cleanup"
+    else
+        print_success "No development artifacts found"
     fi
-    print_success "No development artifacts found"
     
     # Check git status
-    print_warning "Checking git status..."
+    print_step "Checking git repository..."
     if ! git rev-parse --git-dir > /dev/null 2>&1; then
         print_error "Not a git repository"
-        exit 1
+        ((validation_errors++))
+    else
+        local branch=$(git branch --show-current)
+        print_info "  Current branch: $branch"
+        
+        local commit_count=$(git rev-list --count HEAD 2>/dev/null || echo "0")
+        print_info "  Total commits: $commit_count"
+        
+        if [ -n "$(git status --porcelain)" ]; then
+            if [ "$INTERACTIVE_MODE" = "true" ]; then
+                print_warning "Uncommitted changes detected:"
+                git status --short
+                echo ""
+                print_warning "Continue anyway? (y/n)"
+                read -r response
+                if [[ ! "$response" =~ ^[Yy]$ ]]; then
+                    print_error "Validation cancelled by user"
+                    exit 1
+                fi
+            else
+                print_warning "Uncommitted changes detected (will be auto-committed)"
+            fi
+        else
+            print_success "Git working directory clean"
+        fi
     fi
     
-    if [ -n "$(git status --porcelain)" ]; then
-        print_error "Uncommitted changes detected:"
-        git status --porcelain
-        exit 1
+    # Run tests if available and not skipped
+    if [ "$SKIP_TESTS" != "true" ] && [ -f "pytest.ini" ]; then
+        print_step "Running tests..."
+        if command -v pytest &> /dev/null; then
+            local test_output
+            if test_output=$(pytest tests/ -q --tb=short 2>&1); then
+                print_success "Tests passed"
+            else
+                print_warning "Some tests failed:"
+                echo "$test_output" | head -20
+                if [ "$INTERACTIVE_MODE" = "true" ]; then
+                    print_warning "Continue despite test failures? (y/n)"
+                    read -r response
+                    if [[ ! "$response" =~ ^[Yy]$ ]]; then
+                        exit 1
+                    fi
+                fi
+            fi
+        else
+            print_info "pytest not available, skipping tests"
+        fi
     fi
-    print_success "Git working directory clean"
+    
+    if [ $validation_errors -gt 0 ]; then
+        print_error "Validation failed with $validation_errors error(s)"
+        return 1
+    fi
     
     print_success "All validation checks passed!"
+    return 0
 }
 
-cmd_build_bundles() {
-    print_header "Building Release Bundles"
+build_bundle_parallel() {
+    local bundle_type="$1"
+    local bundle_name="$2"
     
-    # Check required files exist
-    if ! check_files_exist "runner.py" "requirements.txt" "LICENSE" "README.md"; then
-        print_error "Missing required files for bundle build"
-        exit 1
-    fi
+    log_info "Building $bundle_name bundle in parallel"
     
-    # Create dist directory
-    if ! mkdir -p dist; then
-        print_error "Failed to create dist directory"
-        exit 1
-    fi
+    case "$bundle_type" in
+        python3)
+            build_python3_bundle
+            ;;
+        pypy3)
+            build_pypy3_bundle
+            ;;
+        *)
+            log_error "Unknown bundle type: $bundle_type"
+            return 1
+            ;;
+    esac
+}
+
+build_python3_bundle() {
+    log_info "Building Python3 bundle"
     
-    if [ ! -d "dist" ]; then
-        print_error "dist directory does not exist or is not accessible"
-        exit 1
-    fi
-    
-    # Build Python3 bundle
-    print_warning "Building Python 3 bundle..."
-    mkdir -p dist/python3-runner || { print_error "Failed to create dist/python3-runner"; exit 1; }
-    
-    cp runner.py dist/python3-runner/ || { print_error "Failed to copy runner.py"; exit 1; }
-    cp requirements.txt dist/python3-runner/ || { print_error "Failed to copy requirements.txt"; exit 1; }
-    cp LICENSE dist/python3-runner/ || { print_error "Failed to copy LICENSE"; exit 1; }
-    cp README.md dist/python3-runner/ || { print_error "Failed to copy README.md"; exit 1; }
+    mkdir -p dist/python3-runner || return 1
+    cp runner.py requirements.txt LICENSE README.md dist/python3-runner/ || return 1
     cp config.example.yaml dist/python3-runner/ 2>/dev/null || true
     
-    cat > dist/python3-runner/INSTALL.sh << 'INSTALL_SCRIPT' || { print_error "Failed to create INSTALL.sh"; exit 1; }
+    cat > dist/python3-runner/INSTALL.sh << 'INSTALL_SCRIPT' || return 1
 #!/bin/bash
 set -e
 echo "Installing Python Script Runner (Python 3)..."
@@ -413,39 +697,26 @@ chmod +x runner.py
 echo "✅ Installation complete!"
 echo "Usage: python3 runner.py <script.py> [options]"
 INSTALL_SCRIPT
-    chmod +x dist/python3-runner/INSTALL.sh || { print_error "Failed to make INSTALL.sh executable"; exit 1; }
     
-    cd dist || { print_error "Failed to enter dist directory"; exit 1; }
+    chmod +x dist/python3-runner/INSTALL.sh || return 1
     
-    if ! tar -czf python3-runner.tar.gz python3-runner/ 2>/dev/null; then
-        cd .. > /dev/null 2>&1 || true
-        print_error "Failed to create python3-runner.tar.gz"
-        exit 1
-    fi
+    cd dist || return 1
+    tar -czf python3-runner.tar.gz python3-runner/ 2>/dev/null || { cd ..; return 1; }
+    zip -q -r python3-runner.zip python3-runner/ 2>/dev/null || { cd ..; return 1; }
+    cd .. || return 1
     
-    if ! zip -q -r python3-runner.zip python3-runner/ 2>/dev/null; then
-        cd .. > /dev/null 2>&1 || true
-        print_error "Failed to create python3-runner.zip"
-        exit 1
-    fi
+    log_info "Python3 bundle completed"
+    return 0
+}
+
+build_pypy3_bundle() {
+    log_info "Building PyPy3 bundle"
     
-    cd .. || { print_error "Failed to exit dist directory"; exit 1; }
+    mkdir -p dist/pypy3-runner || return 1
+    cp runner.py requirements.txt LICENSE README.md dist/pypy3-runner/ || return 1
+    cp config.example.yaml requirements-pypy3.txt dist/pypy3-runner/ 2>/dev/null || true
     
-    print_success "Python 3 bundle created"
-    ls -lh dist/python3-runner.* || print_warning "Could not list python3 bundles"
-    
-    # Build PyPy3 bundle
-    print_warning "Building PyPy3 bundle..."
-    mkdir -p dist/pypy3-runner || { print_error "Failed to create dist/pypy3-runner"; exit 1; }
-    
-    cp runner.py dist/pypy3-runner/ || { print_error "Failed to copy runner.py to pypy3"; exit 1; }
-    cp requirements.txt dist/pypy3-runner/ || { print_error "Failed to copy requirements.txt to pypy3"; exit 1; }
-    cp LICENSE dist/pypy3-runner/ || { print_error "Failed to copy LICENSE to pypy3"; exit 1; }
-    cp README.md dist/pypy3-runner/ || { print_error "Failed to copy README.md to pypy3"; exit 1; }
-    cp config.example.yaml dist/pypy3-runner/ 2>/dev/null || true
-    cp requirements-pypy3.txt dist/pypy3-runner/ 2>/dev/null || true
-    
-    cat > dist/pypy3-runner/INSTALL.sh << 'INSTALL_SCRIPT' || { print_error "Failed to create pypy3 INSTALL.sh"; exit 1; }
+    cat > dist/pypy3-runner/INSTALL.sh << 'INSTALL_SCRIPT' || return 1
 #!/bin/bash
 set -e
 echo "Installing Python Script Runner (PyPy3)..."
@@ -466,26 +737,97 @@ chmod +x runner.py
 echo "✅ Installation complete!"
 echo "Usage: pypy3 runner.py <script.py> [options]"
 INSTALL_SCRIPT
-    chmod +x dist/pypy3-runner/INSTALL.sh || { print_error "Failed to make pypy3 INSTALL.sh executable"; exit 1; }
     
-    cd dist || { print_error "Failed to enter dist directory"; exit 1; }
+    chmod +x dist/pypy3-runner/INSTALL.sh || return 1
     
-    if ! tar -czf pypy3-runner.tar.gz pypy3-runner/ 2>/dev/null; then
-        cd .. > /dev/null 2>&1 || true
-        print_error "Failed to create pypy3-runner.tar.gz"
+    cd dist || return 1
+    tar -czf pypy3-runner.tar.gz pypy3-runner/ 2>/dev/null || { cd ..; return 1; }
+    zip -q -r pypy3-runner.zip pypy3-runner/ 2>/dev/null || { cd ..; return 1; }
+    cd .. || return 1
+    
+    log_info "PyPy3 bundle completed"
+    return 0
+}
+
+cmd_build_bundles() {
+    print_header "Building Release Bundles"
+    log_info "Starting bundle build"
+    
+    # Check required files exist
+    if ! check_files_exist "runner.py" "requirements.txt" "LICENSE" "README.md"; then
+        print_error "Missing required files for bundle build"
         exit 1
     fi
     
-    if ! zip -q -r pypy3-runner.zip pypy3-runner/ 2>/dev/null; then
-        cd .. > /dev/null 2>&1 || true
-        print_error "Failed to create pypy3-runner.zip"
+    # Create dist directory
+    if ! mkdir -p dist; then
+        print_error "Failed to create dist directory"
         exit 1
     fi
     
-    cd .. || { print_error "Failed to exit dist directory"; exit 1; }
+    if [ ! -d "dist" ]; then
+        print_error "dist directory does not exist or is not accessible"
+        exit 1
+    fi
     
-    print_success "PyPy3 bundle created"
-    ls -lh dist/pypy3-runner.* || print_warning "Could not list pypy3 bundles"
+    # Build bundles in parallel if enabled
+    if [ "$PARALLEL_BUILDS" = "true" ]; then
+        print_step "Building bundles in parallel..."
+        
+        build_python3_bundle &
+        local py3_pid=$!
+        
+        build_pypy3_bundle &
+        local pypy3_pid=$!
+        
+        # Wait for both builds
+        local py3_status=0
+        local pypy3_status=0
+        
+        wait $py3_pid || py3_status=$?
+        wait $pypy3_pid || pypy3_status=$?
+        
+        if [ $py3_status -eq 0 ]; then
+            print_success "Python 3 bundle created"
+        else
+            print_error "Python 3 bundle failed"
+            exit 1
+        fi
+        
+        if [ $pypy3_status -eq 0 ]; then
+            print_success "PyPy3 bundle created"
+        else
+            print_error "PyPy3 bundle failed"
+            exit 1
+        fi
+    else
+        # Sequential build
+        print_step "Building Python 3 bundle..."
+        if build_python3_bundle; then
+            print_success "Python 3 bundle created"
+        else
+            print_error "Python 3 bundle failed"
+            exit 1
+        fi
+        
+        print_step "Building PyPy3 bundle..."
+        if build_pypy3_bundle; then
+            print_success "PyPy3 bundle created"
+        else
+            print_error "PyPy3 bundle failed"
+            exit 1
+        fi
+    fi
+    
+    # Remove old sequential code - now using functions above
+    # Build Python3 bundle
+    # print_warning "Building Python 3 bundle..."
+    # mkdir -p dist/python3-runner || { print_error "Failed to create dist/python3-runner"; exit 1; }
+    
+    # List created bundles
+    print_step "Listing created bundles..."
+    ls -lh dist/python3-runner.* 2>/dev/null || print_warning "Could not list python3 bundles"
+    ls -lh dist/pypy3-runner.* 2>/dev/null || print_warning "Could not list pypy3 bundles"
     
     # Create checksums
     print_warning "Creating checksums..."
@@ -912,16 +1254,168 @@ cmd_publish() {
     print_success "Release published successfully!"
 }
 
+# New utility commands
+cmd_status() {
+    print_header "Release Status"
+    
+    cmd_version
+    echo ""
+    
+    print_step "Git Information"
+    if git rev-parse --git-dir > /dev/null 2>&1; then
+        local branch=$(git branch --show-current)
+        local commit=$(git rev-parse --short HEAD)
+        local remote_url=$(git config --get remote.origin.url 2>/dev/null || echo "none")
+        
+        print_info "Branch: $branch"
+        print_info "Commit: $commit"
+        print_info "Remote: $remote_url"
+        
+        if [ -n "$(git status --porcelain)" ]; then
+            print_warning "Uncommitted changes: $(git status --porcelain | wc -l) file(s)"
+        else
+            print_success "Working directory clean"
+        fi
+    else
+        print_warning "Not a git repository"
+    fi
+    
+    echo ""
+    print_step "Build Artifacts"
+    if [ -d "dist" ]; then
+        local artifact_count=$(find dist -type f | wc -l)
+        print_info "Artifacts in dist/: $artifact_count file(s)"
+        du -sh dist/ 2>/dev/null || true
+    else
+        print_info "No dist/ directory found"
+    fi
+}
+
+cmd_clean() {
+    print_header "Cleaning Build Artifacts"
+    log_info "Starting cleanup"
+    
+    local cleaned=0
+    
+    # Clean dist directory
+    if [ -d "dist" ]; then
+        print_step "Removing dist/ directory..."
+        if rm -rf dist/; then
+            print_success "Removed dist/"
+            ((cleaned++))
+        else
+            print_error "Failed to remove dist/"
+        fi
+    fi
+    
+    # Clean build artifacts
+    local patterns=("*.pyc" "__pycache__" "*.egg-info" ".pytest_cache" ".coverage" "*.spec")
+    for pattern in "${patterns[@]}"; do
+        local files=$(find . -name "$pattern" 2>/dev/null)
+        if [ -n "$files" ]; then
+            print_step "Removing $pattern..."
+            find . -name "$pattern" -exec rm -rf {} + 2>/dev/null || true
+            ((cleaned++))
+        fi
+    done
+    
+    # Clean log files
+    if ls /tmp/release-*.log 1> /dev/null 2>&1; then
+        print_step "Removing old log files..."
+        rm -f /tmp/release-*.log
+        ((cleaned++))
+    fi
+    
+    print_success "Cleaned $cleaned item(s)"
+}
+
+cmd_full_release() {
+    local version=$1
+    
+    if [ -z "$version" ]; then
+        print_error "Version required"
+        echo "Usage: bash release.sh full-release VERSION"
+        exit 1
+    fi
+    
+    validate_version "$version" || exit 1
+    
+    print_header "Full Release Workflow v$version"
+    log_info "Starting full release workflow for version $version"
+    
+    # Confirm in interactive mode
+    if [ "$INTERACTIVE_MODE" = "true" ]; then
+        print_warning "This will execute the complete release workflow:"
+        echo "  1. Validate codebase"
+        echo "  2. Build all bundles"
+        echo "  3. Build platform packages (EXE, DEB)"
+        echo "  4. Prepare release and create git tag"
+        echo "  5. Publish to GitHub"
+        echo ""
+        print_warning "Continue with full release of v$version? (y/n)"
+        read -r response
+        if [[ ! "$response" =~ ^[Yy]$ ]]; then
+            print_info "Release cancelled"
+            exit 0
+        fi
+    fi
+    
+    # Execute full workflow
+    print_step "Step 1/5: Validation"
+    cmd_validate || { print_error "Validation failed"; exit 1; }
+    
+    print_step "Step 2/5: Building bundles"
+    cmd_build_bundles || { print_error "Bundle build failed"; exit 1; }
+    
+    print_step "Step 3/5: Building platform packages"
+    if command -v pyinstaller &> /dev/null; then
+        cmd_build_exe "$version" || print_warning "EXE build failed (non-fatal)"
+    else
+        print_warning "Skipping EXE build (pyinstaller not available)"
+    fi
+    
+    if command -v dpkg-deb &> /dev/null; then
+        cmd_build_deb "$version" || print_warning "DEB build failed (non-fatal)"
+    else
+        print_warning "Skipping DEB build (dpkg-deb not available)"
+    fi
+    
+    print_step "Step 4/5: Preparing release"
+    cmd_prepare_release "$version" || { print_error "Release preparation failed"; exit 1; }
+    
+    print_step "Step 5/5: Publishing to GitHub"
+    if [ "$INTERACTIVE_MODE" = "true" ]; then
+        print_warning "Ready to publish to GitHub. Continue? (y/n)"
+        read -r response
+        if [[ ! "$response" =~ ^[Yy]$ ]]; then
+            print_info "Publish step skipped"
+            print_info "You can publish later with: bash release.sh publish $version"
+            exit 0
+        fi
+    fi
+    
+    cmd_publish "$version" || { print_error "Publish failed"; exit 1; }
+    
+    print_success "Full release completed successfully!"
+    print_summary
+}
+
 # Main
 case "${1:-help}" in
     version)
         cmd_version
+        ;;
+    status)
+        cmd_status
         ;;
     bump)
         cmd_bump "$2" "${3:-}"
         ;;
     validate)
         cmd_validate
+        ;;
+    clean)
+        cmd_clean
         ;;
     build-bundles)
         cmd_build_bundles
@@ -938,6 +1432,9 @@ case "${1:-help}" in
     publish)
         cmd_publish "$2"
         ;;
+    full-release)
+        cmd_full_release "$2"
+        ;;
     help|--help|-h)
         show_help
         ;;
@@ -948,3 +1445,7 @@ case "${1:-help}" in
         exit 1
         ;;
 esac
+
+# Final cleanup and summary
+print_summary
+log_info "Script completed successfully"

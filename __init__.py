@@ -40,7 +40,7 @@ try:
     ]
 except ImportError:
     # Fallback if imported as a package before installation
-    __version__ = "7.0.0"
+    __version__ = "7.0.1"
     __author__ = "Hayk Jomardyan"
     __license__ = "MIT"
     __all__ = []

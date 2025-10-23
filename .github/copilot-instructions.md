@@ -1,6 +1,6 @@
 # Copilot Instructions for Python Script Runner
 
-> Production-grade Python script execution engine with comprehensive monitoring, alerting, and analytics. Version 7.0.0+
+> Production-grade Python script execution engine with comprehensive monitoring, alerting, and analytics. Version 7.0.1+
 
 ## ⚠️ CRITICAL: Do NOT Generate Status/Report Files
 

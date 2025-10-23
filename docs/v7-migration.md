@@ -2,7 +2,7 @@
 
 ## Overview
 
-Python Script Runner v7.0 introduces major new features while maintaining 100% backward compatibility with v6.x. This guide helps you upgrade and adopt new capabilities.
+Python Script Runner v7.0.1 introduces major new features while maintaining 100% backward compatibility with v6.x. This guide helps you upgrade and adopt new capabilities.
 
 ## Key Changes
 
@@ -184,7 +184,7 @@ result = engine.run(WorkflowParser().parse_yaml('workflow.yaml'))
 
 ## Breaking Changes
 
-⚠️ **NONE** - v7.0 is 100% backward compatible with v6.x
+⚠️ **NONE** - v7.0.1 is 100% backward compatible with v6.x
 
 All existing code, scripts, and configurations continue to work without modification.
 
@@ -256,11 +256,11 @@ python-script-runner script.py  # Triggers migration
 
 ## Deprecations
 
-None in v7.0. All v6.x features remain supported.
+None in v7.0.1. All v6.x features remain supported.
 
 ## Performance
 
-v7.0 has similar or better performance to v6.x:
+v7.0.1 has similar or better performance to v6.x:
 
 | Feature | Overhead |
 |---------|----------|
