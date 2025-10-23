@@ -1,0 +1,11 @@
+{
+  "name": "api_integration",
+  "category": "api",
+  "description": "REST API integration template with rate limiting, retry logic, and error handling",
+  "author": "Python Script Runner",
+  "version": "1.0.0",
+  "tags": ["api", "rest", "integration", "http", "requests"],
+  "dependencies": ["requests>=2.28.0"],
+  "difficulty": "intermediate",
+  "estimated_time_minutes": 25
+}

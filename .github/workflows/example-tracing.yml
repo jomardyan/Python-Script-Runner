@@ -1,0 +1,39 @@
+name: Example - Distributed Tracing
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+
+jobs:
+  trace-integration:
+    runs-on: ubuntu-latest
+    name: Traced Background Job
+    
+    steps:
+      - name: 'Checkout code'
+        uses: actions/checkout@v3
+
+      - name: 'Run traced job'
+        uses: ./.github/actions/python-script-runner
+        with:
+          script-path: './services/background_worker.py'
+          python-version: '3.11'
+          timeout-minutes: 60
+          max-retries: 2
+          enable-tracing: true
+          extra-dependencies: |
+            opentelemetry-api
+            opentelemetry-sdk
+            opentelemetry-exporter-jaeger
+        env:
+          OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_COLLECTOR_URL }}
+          OTEL_SERVICE_NAME: 'python-script-runner'
+
+      - name: 'Check trace upload'
+        if: always()
+        run: |
+          echo "Trace data should be visible in your collector at:"
+          echo "${{ secrets.OTEL_COLLECTOR_URL }}"

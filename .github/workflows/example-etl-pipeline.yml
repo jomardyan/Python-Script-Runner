@@ -1,0 +1,45 @@
+name: Example - Scheduled ETL Pipeline
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # Run daily at 2 AM UTC
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  etl-pipeline:
+    runs-on: ubuntu-latest
+    name: Daily ETL Pipeline
+    
+    steps:
+      - name: 'Checkout code'
+        uses: actions/checkout@v3
+
+      - name: 'Run ETL pipeline with monitoring'
+        uses: ./.github/actions/python-script-runner
+        with:
+          script-path: './examples/etl_pipeline.py'
+          python-version: '3.11'
+          timeout-minutes: 120
+          max-retries: 2
+          retry-delay-seconds: 30
+          enable-dependency-scan: true
+          upload-metrics: 'https://metrics.example.com/api/etl'
+        env:
+          # Add your environment variables here
+          LOG_LEVEL: 'INFO'
+
+      - name: 'Upload metrics artifact'
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: etl-metrics
+          path: /tmp/metrics.json
+          retention-days: 30
+
+      - name: 'Notify on failure'
+        if: failure()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: 'ETL Pipeline failed'
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}

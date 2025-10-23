@@ -1,0 +1,190 @@
+# GitLab CI/CD Template for Python Script Runner
+# 
+# Usage:
+# 1. Copy this file to your GitLab project: .gitlab/python-script-runner.yml
+# 2. Include in your .gitlab-ci.yml:
+#
+#    include:
+#      - local: '.gitlab/python-script-runner.yml'
+#
+# 3. Reference in your pipeline stages:
+#
+#    my_job:
+#      extends: .psr_script_runner
+
+.psr_base_config:
+  image: python:${PYTHON_VERSION:-3.11}
+  variables:
+    PSR_TIMEOUT_MINUTES: ${PSR_TIMEOUT_MINUTES:-30}
+    PSR_MAX_RETRIES: ${PSR_MAX_RETRIES:-0}
+    PSR_RETRY_DELAY_SECONDS: ${PSR_RETRY_DELAY_SECONDS:-5}
+    PYTHONUNBUFFERED: 1
+  before_script:
+    - pip install --upgrade pip setuptools wheel
+    - pip install python-script-runner
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - stuck_or_timeout_failure
+
+# Basic script runner template
+.psr_script_runner:
+  extends: .psr_base_config
+  script:
+    - python-script-runner $SCRIPT_PATH ${RUNNER_ARGS}
+  artifacts:
+    reports:
+      junit: /tmp/test-results.xml
+    paths:
+      - /tmp/metrics.json
+    expire_in: 30 days
+  cache:
+    paths:
+      - .cache/pip
+    key: ${CI_COMMIT_REF_SLUG}
+
+# Script runner with security scanning
+.psr_script_runner_secure:
+  extends: .psr_script_runner
+  variables:
+    ENABLE_SECURITY_SCAN: "true"
+  before_script:
+    - !reference [.psr_base_config, before_script]
+    - pip install 'python-script-runner[security]'
+  script:
+    - |
+      echo "Running security scans..."
+      bandit "$SCRIPT_PATH" -f json -o /tmp/bandit-report.json || true
+      semgrep --config=p/security-audit "$SCRIPT_PATH" -o /tmp/semgrep-report.json || true
+      echo "Security scan completed"
+    - python-script-runner $SCRIPT_PATH ${RUNNER_ARGS}
+
+# Script runner with dependency vulnerability scanning
+.psr_script_runner_with_deps:
+  extends: .psr_script_runner
+  variables:
+    ENABLE_DEPENDENCY_SCAN: "true"
+  before_script:
+    - !reference [.psr_base_config, before_script]
+    - pip install 'python-script-runner[security]'
+  script:
+    - |
+      echo "Checking for dependency vulnerabilities..."
+      safety check --json || echo "Safety check completed with warnings"
+    - python-script-runner $SCRIPT_PATH ${RUNNER_ARGS}
+
+# Script runner with OpenTelemetry tracing
+.psr_script_runner_traced:
+  extends: .psr_script_runner
+  variables:
+    ENABLE_TRACING: "true"
+  before_script:
+    - !reference [.psr_base_config, before_script]
+    - pip install 'python-script-runner[otel]'
+  script:
+    - python-script-runner $SCRIPT_PATH ${RUNNER_ARGS} --enable-tracing
+
+# Script runner with cost tracking
+.psr_script_runner_with_costs:
+  extends: .psr_script_runner
+  variables:
+    ENABLE_COST_TRACKING: "true"
+  before_script:
+    - !reference [.psr_base_config, before_script]
+    - pip install 'python-script-runner[cloud]'
+  script:
+    - python-script-runner $SCRIPT_PATH ${RUNNER_ARGS} --enable-cost-tracking
+
+# Long-running job template (higher timeout, more retries)
+.psr_long_job:
+  extends: .psr_script_runner
+  timeout: 4h
+  variables:
+    PSR_TIMEOUT_MINUTES: 240
+    PSR_MAX_RETRIES: 3
+
+# Quick sanity check template (low timeout, no retries)
+.psr_quick_check:
+  extends: .psr_script_runner
+  timeout: 5m
+  variables:
+    PSR_TIMEOUT_MINUTES: 5
+    PSR_MAX_RETRIES: 0
+
+# Performance benchmark template
+.psr_benchmark:
+  extends: .psr_script_runner
+  variables:
+    PSR_ENABLE_PROFILING: "true"
+  artifacts:
+    reports:
+      junit: /tmp/test-results.xml
+    paths:
+      - /tmp/metrics.json
+      - /tmp/profile.html
+    expire_in: 90 days
+
+---
+
+# Example jobs using the templates
+
+# Example 1: Basic script execution
+example_basic:
+  extends: .psr_script_runner
+  stage: test
+  variables:
+    SCRIPT_PATH: ./scripts/basic_script.py
+  only:
+    - merge_requests
+
+# Example 2: Secure script execution with scanning
+example_secure:
+  extends: .psr_script_runner_secure
+  stage: security
+  variables:
+    SCRIPT_PATH: ./scripts/critical_script.py
+  only:
+    - main
+    - develop
+
+# Example 3: Long-running ETL pipeline
+example_etl:
+  extends: .psr_long_job
+  stage: data
+  variables:
+    SCRIPT_PATH: ./etl/daily_pipeline.py
+    RUNNER_ARGS: "--config ./etl/config.yaml"
+  schedule:
+    - cron: "0 2 * * *"  # 2 AM daily
+
+# Example 4: Traced microservice job
+example_traced:
+  extends: .psr_script_runner_traced
+  stage: services
+  variables:
+    SCRIPT_PATH: ./services/background_job.py
+  environment:
+    name: production
+    kubernetes:
+      namespace: production
+  only:
+    - tags
+
+# Example 5: Quick sanity check
+example_check:
+  extends: .psr_quick_check
+  stage: lint
+  variables:
+    SCRIPT_PATH: ./scripts/sanity_check.py
+  allow_failure: true
+
+# Example 6: Performance benchmark
+example_benchmark:
+  extends: .psr_benchmark
+  stage: test
+  variables:
+    SCRIPT_PATH: ./benchmarks/performance_test.py
+  only:
+    - merge_requests
+  when: manual

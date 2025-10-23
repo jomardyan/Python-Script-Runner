@@ -1,0 +1,188 @@
+name: 'Python Script Runner'
+description: 'Execute Python scripts with production-grade monitoring, tracing, and analytics'
+author: 'Python Script Runner Contributors'
+
+inputs:
+  script-path:
+    description: 'Path to the Python script to execute'
+    required: true
+  python-version:
+    description: 'Python version to use (e.g., 3.9, 3.10, 3.11)'
+    required: false
+    default: '3.11'
+  timeout-minutes:
+    description: 'Execution timeout in minutes'
+    required: false
+    default: '30'
+  max-retries:
+    description: 'Maximum number of retry attempts'
+    required: false
+    default: '0'
+  retry-delay-seconds:
+    description: 'Delay between retry attempts in seconds'
+    required: false
+    default: '5'
+  fail-fast:
+    description: 'Fail fast on first error'
+    required: false
+    default: 'false'
+  extra-dependencies:
+    description: 'Additional pip packages to install (space-separated)'
+    required: false
+    default: ''
+  enable-tracing:
+    description: 'Enable OpenTelemetry tracing (requires OTEL_EXPORTER_OTLP_ENDPOINT)'
+    required: false
+    default: 'false'
+  enable-security-scan:
+    description: 'Enable security scanning (Bandit + Semgrep)'
+    required: false
+    default: 'false'
+  enable-dependency-scan:
+    description: 'Enable dependency vulnerability scanning'
+    required: false
+    default: 'false'
+  enable-cost-tracking:
+    description: 'Enable cloud cost attribution (requires cloud credentials)'
+    required: false
+    default: 'false'
+  upload-metrics:
+    description: 'Upload execution metrics to specified URL'
+    required: false
+    default: ''
+
+outputs:
+  exit-code:
+    description: 'Script exit code'
+    value: ${{ steps.run-script.outputs.exit-code }}
+  execution-time-seconds:
+    description: 'Total execution time in seconds'
+    value: ${{ steps.run-script.outputs.execution-time-seconds }}
+  metrics:
+    description: 'JSON-formatted execution metrics'
+    value: ${{ steps.run-script.outputs.metrics }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: 'Setup Python'
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: 'Install Python Script Runner'
+      shell: bash
+      run: |
+        pip install --upgrade pip setuptools wheel
+        pip install python-script-runner
+
+    - name: 'Install optional dependencies'
+      shell: bash
+      run: |
+        if [ "${{ inputs.enable-tracing }}" = "true" ]; then
+          pip install 'python-script-runner[otel]'
+        fi
+        if [ "${{ inputs.enable-security-scan }}" = "true" ]; then
+          pip install 'python-script-runner[security]'
+        fi
+        if [ "${{ inputs.enable-dependency-scan }}" = "true" ]; then
+          pip install 'python-script-runner[security]'
+        fi
+        if [ "${{ inputs.enable-cost-tracking }}" = "true" ]; then
+          pip install 'python-script-runner[cloud]'
+        fi
+        if [ -n "${{ inputs.extra-dependencies }}" ]; then
+          pip install ${{ inputs.extra-dependencies }}
+        fi
+
+    - name: 'Pre-execution security scan'
+      shell: bash
+      if: inputs.enable-security-scan == 'true'
+      run: |
+        echo "Running security scans on ${{ inputs.script-path }}..."
+        bandit "${{ inputs.script-path }}" -f json -o /tmp/bandit-report.json || true
+        semgrep --config=p/security-audit "${{ inputs.script-path }}" -o /tmp/semgrep-report.json || true
+        echo "Security scan report:"
+        cat /tmp/bandit-report.json 2>/dev/null || echo "Bandit report not generated"
+
+    - name: 'Pre-execution dependency scan'
+      shell: bash
+      if: inputs.enable-dependency-scan == 'true'
+      run: |
+        echo "Checking for dependency vulnerabilities..."
+        safety check --json || echo "Safety check completed with warnings"
+
+    - name: 'Run script with Python Script Runner'
+      id: run-script
+      shell: bash
+      env:
+        PSR_TIMEOUT_MINUTES: ${{ inputs.timeout-minutes }}
+        PSR_MAX_RETRIES: ${{ inputs.max-retries }}
+        PSR_RETRY_DELAY_SECONDS: ${{ inputs.retry-delay-seconds }}
+        PSR_FAIL_FAST: ${{ inputs.fail-fast }}
+        PSR_ENABLE_TRACING: ${{ inputs.enable-tracing }}
+        PSR_ENABLE_COST_TRACKING: ${{ inputs.enable-cost-tracking }}
+        PSR_UPLOAD_METRICS: ${{ inputs.upload-metrics }}
+      run: |
+        START_TIME=$(date +%s)
+        
+        # Build runner command
+        CMD="python-script-runner '${{ inputs.script-path }}'"
+        
+        # Add optional flags
+        if [ "${{ inputs.max-retries }}" -gt "0" ]; then
+          CMD="$CMD --retry ${{ inputs.max-retries }}"
+        fi
+        
+        if [ "${{ inputs.fail-fast }}" = "true" ]; then
+          CMD="$CMD --fail-fast"
+        fi
+        
+        if [ "${{ inputs.enable-tracing }}" = "true" ]; then
+          CMD="$CMD --enable-tracing"
+        fi
+        
+        # Execute script
+        echo "Executing: $CMD"
+        EXIT_CODE=0
+        eval $CMD || EXIT_CODE=$?
+        
+        END_TIME=$(date +%s)
+        DURATION=$((END_TIME - START_TIME))
+        
+        # Output results
+        echo "exit-code=$EXIT_CODE" >> $GITHUB_OUTPUT
+        echo "execution-time-seconds=$DURATION" >> $GITHUB_OUTPUT
+        
+        exit $EXIT_CODE
+
+    - name: 'Upload metrics'
+      shell: bash
+      if: always() && inputs.upload-metrics != ''
+      run: |
+        echo "Uploading metrics to ${{ inputs.upload-metrics }}"
+        METRICS='{
+          "workflow": "'"$GITHUB_WORKFLOW"'",
+          "job": "'"$GITHUB_JOB"'",
+          "run_id": "'"$GITHUB_RUN_ID"'",
+          "exit_code": "'"${{ steps.run-script.outputs.exit-code }}"'",
+          "execution_time_seconds": "'"${{ steps.run-script.outputs.execution-time-seconds }}"'"
+        }'
+        
+        curl -X POST \
+          -H "Content-Type: application/json" \
+          -d "$METRICS" \
+          "${{ inputs.upload-metrics }}" || echo "Metrics upload failed (non-blocking)"
+
+    - name: 'Set job status'
+      shell: bash
+      if: always()
+      run: |
+        EXIT_CODE="${{ steps.run-script.outputs.exit-code }}"
+        if [ "$EXIT_CODE" != "0" ]; then
+          echo "❌ Script execution failed with exit code: $EXIT_CODE"
+          exit $EXIT_CODE
+        else
+          echo "✅ Script executed successfully"
+          exit 0
+        fi

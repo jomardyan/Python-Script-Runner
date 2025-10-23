@@ -1,0 +1,11 @@
+{
+  "name": "file_processing",
+  "category": "file_processing",
+  "description": "File processing template for batch operations with progress tracking and error recovery",
+  "author": "Python Script Runner",
+  "version": "1.0.0",
+  "tags": ["files", "batch", "processing", "csv", "logs"],
+  "dependencies": ["pathlib"],
+  "difficulty": "beginner",
+  "estimated_time_minutes": 20
+}

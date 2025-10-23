@@ -1,0 +1,11 @@
+{
+  "name": "etl_pipeline",
+  "category": "etl",
+  "description": "Extract, Transform, Load pipeline template for data processing workflows with error handling and logging",
+  "author": "Python Script Runner",
+  "version": "1.0.0",
+  "tags": ["etl", "data-processing", "pipeline", "csv", "database"],
+  "dependencies": ["pandas>=1.3.0", "sqlalchemy>=1.4.0"],
+  "difficulty": "intermediate",
+  "estimated_time_minutes": 30
+}
