@@ -1,5 +1,5 @@
-name: 'Python Script Runner'
-description: 'Execute Python scripts with production-grade monitoring, tracing, and analytics'
+name: 'Python Script Runner v7.0'
+description: 'Enterprise-grade Python script execution with workflows, tracing, security scanning, and multi-cloud cost tracking'
 author: 'Python Script Runner Contributors'
 
 inputs:

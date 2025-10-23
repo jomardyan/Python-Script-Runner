@@ -128,60 +128,70 @@ class TraceInfo:
             self.attributes = {}
 
 
-class CustomTailSampler(Sampler):
-    """Custom tail-based sampler for OpenTelemetry."""
+# Only define CustomTailSampler if OpenTelemetry is available
+if OTEL_AVAILABLE and Sampler is not None:
+    class CustomTailSampler(Sampler):
+        """Custom tail-based sampler for OpenTelemetry."""
 
-    def __init__(self, rules: Optional[Dict[str, Any]] = None):
-        """
-        Initialize with sampling rules.
+        def __init__(self, rules: Optional[Dict[str, Any]] = None):
+            """
+            Initialize with sampling rules.
 
-        Rules can include:
-        - error: Always sample if error occurs
-        - duration_ms: Min duration to sample
-        - tags: Sample if specific tags present
-        """
-        self.rules = rules or {"error": True}
+            Rules can include:
+            - error: Always sample if error occurs
+            - duration_ms: Min duration to sample
+            - tags: Sample if specific tags present
+            """
+            self.rules = rules or {"error": True}
 
-    def should_sample(
-        self,
-        parent_context,
-        trace_id,
-        span_name,
-        span_kind,
-        attributes,
-        links,
-        trace_state=None,
-    ):
-        """Determine if span should be sampled."""
-        # Check error rule
-        if self.rules.get("error") and attributes:
-            if attributes.get("error") or attributes.get("exception"):
-                return SamplingResult(
-                    decision=True,
-                    trace_state=trace_state,
-                    attributes={"sampled_reason": "error"},
-                )
+        def should_sample(
+            self,
+            parent_context,
+            trace_id,
+            span_name,
+            span_kind,
+            attributes,
+            links,
+            trace_state=None,
+        ):
+            """Determine if span should be sampled."""
+            # Check error rule
+            if self.rules.get("error") and attributes:
+                if attributes.get("error") or attributes.get("exception"):
+                    return SamplingResult(
+                        decision=True,
+                        trace_state=trace_state,
+                        attributes={"sampled_reason": "error"},
+                    )
 
-        # Check duration rule
-        if "duration_ms" in self.rules and attributes:
-            estimated_duration = attributes.get("estimated_duration_ms", 0)
-            if estimated_duration >= self.rules["duration_ms"]:
-                return SamplingResult(
-                    decision=True,
-                    trace_state=trace_state,
-                    attributes={"sampled_reason": "duration"},
-                )
+            # Check duration rule
+            if "duration_ms" in self.rules and attributes:
+                estimated_duration = attributes.get("estimated_duration_ms", 0)
+                if estimated_duration >= self.rules["duration_ms"]:
+                    return SamplingResult(
+                        decision=True,
+                        trace_state=trace_state,
+                        attributes={"sampled_reason": "duration"},
+                    )
 
-        # Default: sample based on probability
-        return SamplingResult(
-            decision=True,
-            trace_state=trace_state,
-            attributes={"sampled_reason": "default"},
-        )
+            # Default: sample based on probability
+            return SamplingResult(
+                decision=True,
+                trace_state=trace_state,
+                attributes={"sampled_reason": "default"},
+            )
 
-    def get_description(self) -> str:
-        """Get sampler description."""
-        return f"CustomTailSampler({self.rules})"
+        def get_description(self) -> str:
+            """Get sampler description."""
+            return f"CustomTailSampler({self.rules})"
+else:
+    # Stub implementation for when OpenTelemetry is not available
+    class CustomTailSampler:
+        """Stub for CustomTailSampler when OpenTelemetry is not available."""
+
+        def __init__(self, rules: Optional[Dict[str, Any]] = None):
+            """Initialize stub."""
+            self.rules = rules or {"error": True}
 
 
 class TracingManager:

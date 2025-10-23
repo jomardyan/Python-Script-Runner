@@ -748,6 +748,227 @@ async def get_available_metrics():
         )
 
 
+# ============================================================================
+# v7.0 FEATURE INTEGRATION - WORKFLOWS
+# ============================================================================
+
+@app.post("/api/workflows/create")
+async def create_workflow(workflow_def: Dict[str, Any]):
+    """Create a new workflow from definition"""
+    try:
+        from runners.workflows.workflow_engine import WorkflowEngine
+        
+        engine = WorkflowEngine()
+        workflow = engine.create_workflow_from_dict(workflow_def)
+        
+        return {
+            "success": True,
+            "workflow_id": workflow.id,
+            "workflow_name": workflow.name,
+            "task_count": len(workflow.tasks),
+            "message": "Workflow created successfully"
+        }
+    except Exception as e:
+        logger.error(f"Error creating workflow: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/workflows/execute/{workflow_id}")
+async def execute_workflow(workflow_id: str, background_tasks: BackgroundTasks):
+    """Execute a workflow asynchronously"""
+    try:
+        from runners.workflows.workflow_engine import WorkflowEngine
+        
+        async def run_workflow():
+            engine = WorkflowEngine()
+            result = engine.run_workflow(workflow_id)
+            await broadcast_metrics({
+                "type": "workflow_completed",
+                "workflow_id": workflow_id,
+                "result": result
+            })
+        
+        background_tasks.add_task(run_workflow)
+        
+        return {
+            "success": True,
+            "workflow_id": workflow_id,
+            "status": "execution_started",
+            "message": "Workflow execution initiated"
+        }
+    except Exception as e:
+        logger.error(f"Error executing workflow: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/workflows/status/{workflow_id}")
+async def get_workflow_status(workflow_id: str):
+    """Get workflow execution status"""
+    try:
+        from runners.workflows.workflow_engine import WorkflowEngine
+        
+        engine = WorkflowEngine()
+        status = engine.get_workflow_status(workflow_id)
+        return status
+    except Exception as e:
+        logger.error(f"Error getting workflow status: {e}")
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+# ============================================================================
+# v7.0 FEATURE INTEGRATION - SECURITY ANALYSIS
+# ============================================================================
+
+@app.post("/api/security/analyze-code")
+async def analyze_code(file_path: str = Query(...)):
+    """Run code security analysis"""
+    try:
+        from runners.scanners.code_analyzer import CodeAnalyzer
+        
+        analyzer = CodeAnalyzer()
+        result = analyzer.analyze(file_path)
+        
+        return {
+            "success": result.success,
+            "file_path": file_path,
+            "findings": [f.to_dict() for f in result.findings],
+            "finding_count": len(result.findings),
+            "critical_count": len(result.critical_findings),
+            "high_count": len(result.high_findings)
+        }
+    except Exception as e:
+        logger.error(f"Error analyzing code: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/security/scan-dependencies")
+async def scan_dependencies(requirements_file: str = Query(...)):
+    """Scan dependencies for vulnerabilities"""
+    try:
+        from runners.scanners.dependency_scanner import DependencyVulnerabilityScanner
+        
+        scanner = DependencyVulnerabilityScanner()
+        result = scanner.scan_requirements(requirements_file)
+        
+        return {
+            "success": result.success,
+            "requirements_file": requirements_file,
+            "vulnerability_count": len(result.vulnerabilities),
+            "critical_count": len([v for v in result.vulnerabilities if v.severity == 'CRITICAL']),
+            "vulnerabilities": [v.to_dict() for v in result.vulnerabilities]
+        }
+    except Exception as e:
+        logger.error(f"Error scanning dependencies: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/security/scan-secrets")
+async def scan_secrets(file_path: str = Query(...)):
+    """Scan for hardcoded secrets"""
+    try:
+        from runners.security.secret_scanner import SecretScanner
+        
+        scanner = SecretScanner()
+        result = scanner.scan_file(file_path)
+        
+        return {
+            "success": result.success,
+            "file_path": file_path,
+            "secrets_found": result.has_secrets,
+            "secret_count": len(result.secrets),
+            "secrets": [s.to_dict() for s in result.secrets]
+        }
+    except Exception as e:
+        logger.error(f"Error scanning secrets: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ============================================================================
+# v7.0 FEATURE INTEGRATION - CLOUD COSTS
+# ============================================================================
+
+@app.post("/api/costs/estimate")
+async def estimate_costs(resources: List[Dict[str, Any]]):
+    """Estimate costs for resources"""
+    try:
+        from runners.integrations.cloud_cost_tracker import CloudCostTracker
+        
+        tracker = CloudCostTracker()
+        
+        for resource in resources:
+            tracker.add_resource(
+                resource_id=resource.get('resource_id', 'unknown'),
+                resource_type=resource['resource_type'],
+                provider=resource['provider'],
+                metrics=resource.get('metrics', {})
+            )
+        
+        result = tracker.get_result()
+        
+        return {
+            "success": result.success,
+            "total_cost_usd": result.total_estimated_cost_usd,
+            "estimates": [e.to_dict() for e in result.cost_estimates]
+        }
+    except Exception as e:
+        logger.error(f"Error estimating costs: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/costs/monthly-summary")
+async def get_monthly_summary():
+    """Get monthly cost summary"""
+    try:
+        if history_manager is None:
+            raise RuntimeError("History manager not initialized")
+        
+        with history_manager.get_connection() as conn:
+            c = conn.cursor()
+            c.execute("""
+                SELECT 
+                    SUM(json_extract(metrics_json, '$.total_cost_usd')) as total,
+                    COUNT(*) as count
+                FROM executions
+                WHERE date >= date('now', '-30 days')
+            """)
+            result = c.fetchone()
+            
+            return {
+                "month": datetime.now().strftime('%Y-%m'),
+                "total_cost_usd": result[0] or 0.0,
+                "execution_count": result[1] or 0
+            }
+    except Exception as e:
+        logger.error(f"Error getting monthly summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# v7.0 FEATURE INTEGRATION - TRACING
+# ============================================================================
+
+@app.get("/api/traces/execution/{execution_id}")
+async def get_execution_traces(execution_id: str):
+    """Get traces for an execution"""
+    try:
+        from runners.tracers.otel_manager import TracingManager
+        
+        manager = TracingManager()
+        
+        return {
+            "execution_id": execution_id,
+            "traces": [],
+            "message": "Traces not yet collected - ensure OTEL_EXPORTER is configured"
+        }
+    except Exception as e:
+        logger.error(f"Error retrieving traces: {e}")
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+# ============================================================================
+# FRONTEND
+# ============================================================================
+
 @app.get("/")
 async def serve_frontend():
     """Serve frontend HTML"""

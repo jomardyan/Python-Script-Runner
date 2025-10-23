@@ -15,7 +15,7 @@ Core Features:
 Executes a target Python script and collects comprehensive execution statistics.
 """
 
-__version__ = "6.4.5"
+__version__ = "7.0.0"
 __author__ = "Hayk Jomardyan"
 __license__ = "MIT"
 
@@ -262,7 +262,8 @@ class HistoryManager:
             self.logger.error(f"Database initialization failed: {e}")
             raise
 
-    def save_execution(self, metrics: Dict) -> Optional[int]:
+    def save_execution(self, metrics: Dict = None, script_path: str = None, exit_code: int = None, 
+                       stdout: str = None, stderr: str = None, **kwargs) -> Optional[int]:
         """Save execution metrics to database.
         
         Persists comprehensive execution metrics including CPU, memory, execution time,
@@ -282,6 +283,11 @@ class HistoryManager:
                 - stdout_lines (int): Number of stdout output lines
                 - stderr_lines (int): Number of stderr output lines
                 - Other numeric metrics for analysis
+            script_path (str, optional): Script path (for backward compatibility)
+            exit_code (int, optional): Exit code (for backward compatibility)
+            stdout (str, optional): Standard output (for backward compatibility)
+            stderr (str, optional): Standard error (for backward compatibility)
+            **kwargs: Additional arguments for backward compatibility
         
         Returns:
             int: Unique execution ID for tracking in related tables
@@ -300,6 +306,18 @@ class HistoryManager:
             ... }
             >>> exec_id = manager.save_execution(metrics)
         """
+        # Support both metrics dict and individual parameters
+        if metrics is None:
+            metrics = kwargs
+            if script_path:
+                metrics['script_path'] = script_path
+            if exit_code is not None:
+                metrics['exit_code'] = exit_code
+            if stdout:
+                metrics['stdout_lines'] = len(stdout.splitlines())
+            if stderr:
+                metrics['stderr_lines'] = len(stderr.splitlines())
+        
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
@@ -5532,6 +5550,24 @@ class AlertManager:
             if should_trigger and alert.can_trigger():
                 alert.mark_triggered()
                 self._send_alert(alert, metrics, condition_str)
+        
+        return self.alert_history
+
+    def notify(self, alert_name: str, severity: str, details: Dict):
+        """Send a notification with the given details
+        
+        Args:
+            alert_name: Name of the alert
+            severity: Severity level (INFO, WARNING, ERROR, CRITICAL)
+            details: Dictionary with alert details
+        """
+        alert_data = {
+            'name': alert_name,
+            'severity': severity,
+            'timestamp': datetime.now().isoformat(),
+            **details
+        }
+        self.alert_history.append(alert_data)
 
     def _send_alert(self, alert: Alert, metrics: Dict, condition_str: str):
         """Send alert through configured channels"""
@@ -6228,9 +6264,50 @@ class ScriptRunner:
         # NEW: Baseline Calculation (Phase 2)
         self.baseline_calculator = BaselineCalculator()
 
+        # ============================================================================
+        # NEW: V7.0 Features Integration
+        # ============================================================================
+        # Workflow Engine (v7)
+        self.workflow_engine = None
+        self.enable_workflows = False
+        
+        # OpenTelemetry Tracing (v7)
+        self.tracing_manager = None
+        self.enable_tracing = False
+        
+        # Code Analysis & Security Scanning (v7)
+        self.code_analyzer = None
+        self.enable_code_analysis = False
+        
+        # Dependency Vulnerability Scanning (v7)
+        self.dependency_scanner = None
+        self.enable_dependency_scanning = False
+        
+        # Secret Scanning (v7)
+        self.secret_scanner = None
+        self.enable_secret_scanning = False
+        
+        # Cloud Cost Tracking (v7)
+        self.cost_tracker = None
+        self.enable_cost_tracking = False
+        
+        # V7 execution results
+        self.v7_results = {
+            'workflow_result': None,
+            'security_findings': [],
+            'dependency_vulnerabilities': [],
+            'secrets_found': [],
+            'cost_estimate': None
+        }
+
         # Setup logging
         self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(getattr(logging, (log_level or 'INFO').upper()))
+        # Handle invalid log levels gracefully
+        try:
+            level = getattr(logging, (log_level or 'INFO').upper())
+        except AttributeError:
+            level = logging.INFO
+        self.logger.setLevel(level)
         if not self.logger.handlers:
             handler = logging.StreamHandler()
             formatter = logging.Formatter('[%(levelname)s] %(message)s')
@@ -6271,6 +6348,18 @@ class ScriptRunner:
               email:
                 smtp_server: smtp.gmail.com
                 sender_email: alerts@example.com
+            
+            v7_features:
+              enable_workflows: true
+              enable_tracing: true
+              enable_code_analysis: true
+              enable_dependency_scanning: true
+              enable_secret_scanning: true
+              enable_cost_tracking: true
+              tracing:
+                service_name: my_service
+                exporter_type: jaeger
+                sampling_rate: 0.1
         
         Example:
             >>> runner.load_config('production_config.yaml')
@@ -6297,6 +6386,10 @@ class ScriptRunner:
                     self.alert_manager.configure_slack(config['notifications']['slack']['webhook_url'])
                 if 'email' in config['notifications']:
                     self.alert_manager.configure_email(**config['notifications']['email'])
+
+            # NEW: Load v7 features configuration
+            if 'v7_features' in config:
+                self._initialize_v7_features(config)
 
             self.logger.info(f"Configuration loaded from {config_file}")
 
@@ -6462,7 +6555,18 @@ class ScriptRunner:
                     time.sleep(delay)
                 else:
                     self.logger.error(f"Retry exhausted after {attempt} attempts")
-                    raise
+                    # Return error result instead of raising for better error handling
+                    return {
+                        'stdout': '',
+                        'stderr': str(e),
+                        'returncode': -1,
+                        'success': False,
+                        'metrics': {
+                            'error': str(e),
+                            'error_type': type(e).__name__,
+                            'attempt_number': attempt
+                        }
+                    }
 
     def _execute_script(self, attempt_number: int = 1) -> Dict:
         self.validate_script()
@@ -6552,6 +6656,7 @@ class ScriptRunner:
                 'stdout': stdout,
                 'stderr': stderr,
                 'returncode': returncode,
+                'success': returncode == 0,
                 'metrics': self.metrics
             }
 
@@ -6599,6 +6704,7 @@ class ScriptRunner:
                 'stdout': e.stdout or '',
                 'stderr': e.stderr or '',
                 'returncode': -1,
+                'success': False,
                 'metrics': self.metrics
             }
 
@@ -6624,6 +6730,7 @@ class ScriptRunner:
                 'stdout': '',
                 'stderr': str(e),
                 'returncode': -1,
+                'success': False,
                 'metrics': self.metrics
             }
 
@@ -6648,6 +6755,242 @@ class ScriptRunner:
                 self.logger.debug(f"Resource usage collection failed: {e}")
 
         return resource_metrics
+
+    def _initialize_v7_features(self, config: Optional[Dict] = None) -> None:
+        """Initialize v7.0 features based on configuration.
+        
+        Args:
+            config (Dict, optional): Configuration dictionary with v7 feature settings
+        """
+        if config is None:
+            config = {}
+        
+        v7_config = config.get('v7_features', {})
+        
+        # Initialize Workflow Engine
+        if v7_config.get('enable_workflows', False):
+            try:
+                from runners.workflows.workflow_engine import WorkflowEngine
+                self.workflow_engine = WorkflowEngine()
+                self.enable_workflows = True
+                self.logger.info("✓ Workflow Engine initialized")
+            except ImportError:
+                self.logger.warning("⚠ Workflow Engine not available (module not found)")
+        
+        # Initialize OpenTelemetry Tracing
+        if v7_config.get('enable_tracing', False):
+            try:
+                from runners.tracers.otel_manager import TracingManager
+                self.tracing_manager = TracingManager()
+                self.enable_tracing = True
+                self.logger.info("✓ OpenTelemetry Tracing initialized")
+            except ImportError:
+                self.logger.warning("⚠ OpenTelemetry not available (module not found)")
+        
+        # Initialize Code Analyzer
+        if v7_config.get('enable_code_analysis', False):
+            try:
+                from runners.scanners.code_analyzer import CodeAnalyzer
+                self.code_analyzer = CodeAnalyzer()
+                self.enable_code_analysis = True
+                self.logger.info("✓ Code Analyzer initialized")
+            except ImportError:
+                self.logger.warning("⚠ Code Analyzer not available (module not found)")
+        
+        # Initialize Dependency Scanner
+        if v7_config.get('enable_dependency_scanning', False):
+            try:
+                from runners.scanners.dependency_scanner import DependencyVulnerabilityScanner
+                self.dependency_scanner = DependencyVulnerabilityScanner()
+                self.enable_dependency_scanning = True
+                self.logger.info("✓ Dependency Scanner initialized")
+            except ImportError:
+                self.logger.warning("⚠ Dependency Scanner not available (module not found)")
+        
+        # Initialize Secret Scanner
+        if v7_config.get('enable_secret_scanning', False):
+            try:
+                from runners.security.secret_scanner import SecretScanner
+                self.secret_scanner = SecretScanner()
+                self.enable_secret_scanning = True
+                self.logger.info("✓ Secret Scanner initialized")
+            except ImportError:
+                self.logger.warning("⚠ Secret Scanner not available (module not found)")
+        
+        # Initialize Cloud Cost Tracker
+        if v7_config.get('enable_cost_tracking', False):
+            try:
+                from runners.integrations.cloud_cost_tracker import CloudCostTracker
+                self.cost_tracker = CloudCostTracker()
+                self.enable_cost_tracking = True
+                self.logger.info("✓ Cloud Cost Tracker initialized")
+            except ImportError:
+                self.logger.warning("⚠ Cloud Cost Tracker not available (module not found)")
+
+    def enable_v7_feature(self, feature_name: str) -> bool:
+        """Enable a specific v7.0 feature.
+        
+        Args:
+            feature_name (str): Feature to enable ('workflows', 'tracing', 'security', 
+                              'dependencies', 'secrets', 'costs')
+        
+        Returns:
+            bool: True if feature was enabled successfully
+        """
+        feature_map = {
+            'workflows': ('enable_workflows', 'workflow_engine', 'WorkflowEngine'),
+            'tracing': ('enable_tracing', 'tracing_manager', 'TracingManager'),
+            'security': ('enable_code_analysis', 'code_analyzer', 'CodeAnalyzer'),
+            'dependencies': ('enable_dependency_scanning', 'dependency_scanner', 'DependencyVulnerabilityScanner'),
+            'secrets': ('enable_secret_scanning', 'secret_scanner', 'SecretScanner'),
+            'costs': ('enable_cost_tracking', 'cost_tracker', 'CloudCostTracker'),
+        }
+        
+        if feature_name not in feature_map:
+            self.logger.error(f"Unknown v7 feature: {feature_name}")
+            return False
+        
+        enable_attr, manager_attr, class_name = feature_map[feature_name]
+        
+        try:
+            if feature_name == 'workflows':
+                from runners.workflows.workflow_engine import WorkflowEngine
+                setattr(self, manager_attr, WorkflowEngine())
+            elif feature_name == 'tracing':
+                from runners.tracers.otel_manager import TracingManager
+                setattr(self, manager_attr, TracingManager())
+            elif feature_name == 'security':
+                from runners.scanners.code_analyzer import CodeAnalyzer
+                setattr(self, manager_attr, CodeAnalyzer())
+            elif feature_name == 'dependencies':
+                from runners.scanners.dependency_scanner import DependencyVulnerabilityScanner
+                setattr(self, manager_attr, DependencyVulnerabilityScanner())
+            elif feature_name == 'secrets':
+                from runners.security.secret_scanner import SecretScanner
+                setattr(self, manager_attr, SecretScanner())
+            elif feature_name == 'costs':
+                from runners.integrations.cloud_cost_tracker import CloudCostTracker
+                setattr(self, manager_attr, CloudCostTracker())
+            
+            setattr(self, enable_attr, True)
+            self.logger.info(f"✓ Enabled v7 feature: {feature_name}")
+            return True
+        except ImportError as e:
+            self.logger.error(f"✗ Failed to enable {feature_name}: {e}")
+            return False
+
+    def run_pre_execution_security_checks(self) -> bool:
+        """Run security scans before script execution.
+        
+        Returns:
+            bool: True if all checks pass (or skipped), False if critical issues found
+        """
+        checks_passed = True
+        
+        # Code analysis
+        if self.enable_code_analysis and self.code_analyzer:
+            try:
+                self.logger.info("Running code analysis...")
+                result = self.code_analyzer.analyze(self.script_path)
+                self.v7_results['security_findings'] = [f.to_dict() if hasattr(f, 'to_dict') else f for f in result.findings]
+                
+                if result.critical_findings:
+                    self.logger.error(f"✗ Found {len(result.critical_findings)} critical security findings!")
+                    checks_passed = False
+                elif result.high_findings:
+                    self.logger.warning(f"⚠ Found {len(result.high_findings)} high-severity findings")
+            except Exception as e:
+                self.logger.warning(f"Code analysis failed: {e}")
+        
+        # Dependency scanning
+        if self.enable_dependency_scanning and self.dependency_scanner:
+            try:
+                self.logger.info("Scanning dependencies...")
+                req_file = os.path.join(os.path.dirname(self.script_path), 'requirements.txt')
+                if os.path.exists(req_file):
+                    result = self.dependency_scanner.scan(req_file)
+                    self.v7_results['dependency_vulnerabilities'] = result if isinstance(result, list) else []
+                    if result:
+                        self.logger.warning(f"⚠ Found {len(result)} dependency vulnerabilities")
+            except Exception as e:
+                self.logger.warning(f"Dependency scanning failed: {e}")
+        
+        # Secret scanning
+        if self.enable_secret_scanning and self.secret_scanner:
+            try:
+                self.logger.info("Scanning for secrets...")
+                result = self.secret_scanner.scan_file(self.script_path)
+                if hasattr(result, 'secrets'):
+                    self.v7_results['secrets_found'] = [s.to_dict() if hasattr(s, 'to_dict') else s for s in result.secrets]
+                    if result.has_secrets:
+                        self.logger.error(f"✗ Found {len(result.secrets)} hardcoded secrets!")
+                        checks_passed = False
+            except Exception as e:
+                self.logger.warning(f"Secret scanning failed: {e}")
+        
+        return checks_passed
+
+    def estimate_execution_costs(self) -> Optional[Dict]:
+        """Estimate cloud execution costs.
+        
+        Returns:
+            Dict with cost estimate or None if disabled
+        """
+        if not self.enable_cost_tracking or not self.cost_tracker:
+            return None
+        
+        try:
+            estimated_duration = getattr(self, 'timeout', 300)  # Default to timeout or 300s
+            result = self.cost_tracker.estimate_cost(
+                script_path=self.script_path,
+                estimated_duration_seconds=estimated_duration
+            )
+            self.v7_results['cost_estimate'] = result
+            return result
+        except Exception as e:
+            self.logger.warning(f"Cost estimation failed: {e}")
+            return None
+
+    def start_execution_tracing(self) -> Optional[Any]:
+        """Start OpenTelemetry tracing for script execution.
+        
+        Returns:
+            Span context or None if disabled
+        """
+        if not self.enable_tracing or not self.tracing_manager:
+            return None
+        
+        try:
+            span = self.tracing_manager.start_span('script_execution')
+            span.set_attribute('script_path', self.script_path)
+            span.set_attribute('script_args', ' '.join(self.script_args) if self.script_args else '')
+            return span
+        except Exception as e:
+            self.logger.warning(f"Tracing initialization failed: {e}")
+            return None
+
+    def collect_v7_metrics(self, execution_result: Dict) -> Dict:
+        """Collect and aggregate v7 metrics into execution result.
+        
+        Args:
+            execution_result: Standard execution result dictionary
+        
+        Returns:
+            Enhanced execution result with v7_metrics
+        """
+        if 'metrics' not in execution_result:
+            execution_result['metrics'] = {}
+        
+        v7_metrics = {
+            'security_findings_count': len(self.v7_results.get('security_findings', [])),
+            'dependency_vulnerabilities_count': len(self.v7_results.get('dependency_vulnerabilities', [])),
+            'secrets_found_count': len(self.v7_results.get('secrets_found', [])),
+            'estimated_cost_usd': self.v7_results.get('cost_estimate', {}).get('total_cost_usd') if self.v7_results.get('cost_estimate') else 0,
+            'workflow_result': self.v7_results.get('workflow_result'),
+        }
+        
+        execution_result['metrics']['v7_metrics'] = v7_metrics
+        return execution_result
 
 
 # ============================================================================

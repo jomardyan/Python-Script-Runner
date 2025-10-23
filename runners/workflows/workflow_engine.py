@@ -120,6 +120,7 @@ class Task:
     inputs: Dict[str, Any] = field(default_factory=dict)
     outputs: List[str] = field(default_factory=list)
     matrix: Optional[Dict[str, List[Any]]] = None
+    status: TaskStatus = field(default=TaskStatus.PENDING)
 
     def __post_init__(self):
         """Validate task configuration."""
@@ -165,8 +166,13 @@ class Task:
 class WorkflowDAG:
     """Directed Acyclic Graph for workflow tasks."""
 
-    def __init__(self):
-        """Initialize DAG."""
+    def __init__(self, name: str = None, **kwargs):
+        """Initialize DAG.
+        
+        Args:
+            name: Optional name for the DAG (for testing/tracking)
+        """
+        self.name = name or "default_dag"
         self.tasks: Dict[str, Task] = {}
         self.graph: Dict[str, Set[str]] = defaultdict(set)
         self.reverse_graph: Dict[str, Set[str]] = defaultdict(set)
@@ -319,8 +325,15 @@ class WorkflowExecutor:
 
         return ops[op](actual, value)
 
-    def execute_task(self, task: Task, context: Dict[str, Any]) -> TaskResult:
-        """Execute a single task with retry logic."""
+    def execute_task(self, task: Task, context: Optional[Dict[str, Any]] = None) -> TaskResult:
+        """Execute a single task with retry logic.
+        
+        Args:
+            task: Task to execute
+            context: Optional execution context (defaults to empty dict)
+        """
+        if context is None:
+            context = {}
         retry_policy = task.metadata.retry_policy
         last_result = None
 
@@ -464,9 +477,15 @@ class WorkflowExecutor:
 class WorkflowEngine:
     """High-level workflow orchestration engine."""
 
-    def __init__(self, max_parallel: int = 4):
-        """Initialize workflow engine."""
+    def __init__(self, max_parallel: int = 4, db_path: str = None, **kwargs):
+        """Initialize workflow engine.
+        
+        Args:
+            max_parallel: Maximum parallel tasks
+            db_path: Optional database path for persistence (for testing)
+        """
         self.max_parallel = max_parallel
+        self.db_path = db_path
         self.logger = logging.getLogger(__name__)
         self.workflows: Dict[str, Tuple[WorkflowDAG, Dict[str, TaskResult]]] = {}
 

@@ -293,6 +293,317 @@
             margin-left: auto;
         }
 
+        /* V7.0 Tab Navigation */
+        .tab-navigation {
+            background: white;
+            border-radius: 10px;
+            padding: 0;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 30px;
+            display: flex;
+            border-bottom: 2px solid #eee;
+        }
+
+        .tab-button {
+            flex: 1;
+            padding: 15px 20px;
+            border: none;
+            background: none;
+            cursor: pointer;
+            font-weight: 500;
+            color: #999;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s;
+            text-align: center;
+            font-size: 0.95em;
+        }
+
+        .tab-button:hover {
+            color: #667eea;
+        }
+
+        .tab-button.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Workflow DAG Visualization */
+        .dag-container {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            height: 400px;
+            position: relative;
+        }
+
+        .dag-node {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 5px;
+            margin: 5px;
+            font-size: 0.9em;
+            text-align: center;
+        }
+
+        /* Security Findings */
+        .findings-list {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .finding-item {
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            margin-bottom: 10px;
+            background: #f9f9f9;
+            border-radius: 5px;
+        }
+
+        .finding-item.critical {
+            border-left-color: #e74c3c;
+            background: #fde8e8;
+        }
+
+        .finding-item.high {
+            border-left-color: #f39c12;
+            background: #fef5e8;
+        }
+
+        .finding-item.medium {
+            border-left-color: #f1c40f;
+            background: #fffae8;
+        }
+
+        .finding-severity {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 3px;
+            font-size: 0.85em;
+            font-weight: 600;
+            margin-right: 10px;
+        }
+
+        .finding-severity.critical {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .finding-severity.high {
+            background: #f39c12;
+            color: white;
+        }
+
+        .finding-severity.medium {
+            background: #f1c40f;
+            color: #333;
+        }
+
+        .finding-severity.low {
+            background: #27ae60;
+            color: white;
+        }
+
+        /* Costs Section */
+        .cost-breakdown {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        .cost-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .cost-row:last-child {
+            border-bottom: none;
+        }
+
+        .cost-label {
+            font-weight: 500;
+            color: #333;
+        }
+
+        .cost-value {
+            font-size: 1.2em;
+            font-weight: 700;
+            color: #667eea;
+        }
+
+        .cost-total {
+            font-size: 2em;
+            font-weight: 700;
+            color: #667eea;
+            padding: 20px 0;
+            text-align: center;
+        }
+
+        /* Trace Timeline */
+        .trace-timeline {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .trace-item {
+            border-left: 3px solid #667eea;
+            padding: 15px;
+            margin-bottom: 10px;
+            background: #f9f9f9;
+            border-radius: 5px;
+        }
+
+        .trace-name {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .trace-duration {
+            color: #999;
+            font-size: 0.9em;
+        }
+
+        .trace-bar {
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            height: 4px;
+            border-radius: 2px;
+            margin-top: 8px;
+        }
+
+        /* V7 Features Styling */
+        .finding, .vulnerability, .secret {
+            padding: 12px;
+            margin: 10px 0;
+            border-left: 4px solid #999;
+            background: #f5f5f5;
+            border-radius: 4px;
+        }
+
+        .severity-critical { 
+            border-left-color: #d32f2f; 
+            background: #ffebee; 
+        }
+
+        .severity-high { 
+            border-left-color: #f57c00; 
+            background: #fff3e0; 
+        }
+
+        .severity-medium { 
+            border-left-color: #fbc02d; 
+            background: #fffde7; 
+        }
+
+        .severity-low { 
+            border-left-color: #388e3c; 
+            background: #e8f5e9; 
+        }
+
+        .trace-span {
+            display: flex;
+            align-items: center;
+            padding: 12px;
+            margin: 8px 0;
+            background: #f9f9f9;
+            border-radius: 4px;
+            border-left: 3px solid #667eea;
+        }
+
+        .span-name {
+            flex: 1;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .span-duration {
+            color: #667eea;
+            font-weight: 600;
+            margin: 0 15px;
+        }
+
+        .span-status {
+            padding: 4px 8px;
+            background: #e8f5e9;
+            border-radius: 3px;
+            font-size: 0.85em;
+            color: #388e3c;
+        }
+
+        .workflow-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            margin: 8px 0;
+            background: #f9f9f9;
+            border-radius: 4px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .workflow-item button {
+            margin: 0 4px;
+            padding: 6px 12px;
+            font-size: 0.85em;
+        }
+
+        .dag-container {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            min-height: 300px;
+        }
+
+        .findings-list {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        .findings-list h3 {
+            margin-bottom: 20px;
+            font-size: 1.2em;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .cost-breakdown {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
         @media (max-width: 768px) {
             .grid {
                 grid-template-columns: 1fr;
@@ -313,6 +624,14 @@
             select, input, button {
                 width: 100%;
             }
+
+            .tab-navigation {
+                flex-wrap: wrap;
+            }
+
+            .tab-button {
+                flex: 0 1 auto;
+            }
         }
     </style>
 </head>
@@ -321,7 +640,7 @@
         <header>
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <div>
-                    <h1>📊 Script Runner Dashboard</h1>
+                    <h1>📊 Script Runner Dashboard v7.0</h1>
                     <div class="header-status">
                         <div class="status-item">
                             <div class="status-indicator"></div>
@@ -333,64 +652,484 @@
             </div>
         </header>
 
-        <!-- Statistics Cards -->
-        <div class="stats-grid" id="statsGrid"></div>
-
-        <!-- Controls -->
-        <div class="controls">
-            <select id="scriptSelect" onchange="populateMetricSelect(); updateDashboard()">
-                <option value="">-- All Scripts --</option>
-            </select>
-            <select id="metricSelect" onchange="updateCharts()">
-                <option value="execution_time_seconds">Execution Time</option>
-                <option value="cpu_max">CPU Max</option>
-                <option value="memory_max_mb">Memory Max</option>
-            </select>
-            <button onclick="updateDashboard()">🔄 Refresh</button>
-            <button onclick="exportData()">📥 Export Data</button>
+        <!-- Tab Navigation (V7.0) -->
+        <div class="tab-navigation">
+            <button class="tab-button active" onclick="switchTab('metrics')">📊 Metrics</button>
+            <button class="tab-button" onclick="switchTab('workflows')">🔄 Workflows</button>
+            <button class="tab-button" onclick="switchTab('security')">🔒 Security</button>
+            <button class="tab-button" onclick="switchTab('tracing')">📍 Tracing</button>
+            <button class="tab-button" onclick="switchTab('costs')">💰 Costs</button>
         </div>
 
-        <!-- Charts -->
-        <div class="chart-container">
-            <h3 class="chart-title">Execution Time Trend</h3>
-            <canvas id="trendChart"></canvas>
-        </div>
+        <!-- METRICS TAB (Default) -->
+        <div id="metrics-tab" class="tab-content active">
+            <!-- Statistics Cards -->
+            <div class="stats-grid" id="statsGrid"></div>
 
-        <div class="grid">
-            <div class="chart-container" style="height: 300px;">
-                <h3 class="chart-title">Metrics Summary</h3>
-                <canvas id="metricsChart"></canvas>
+            <!-- Controls -->
+            <div class="controls">
+                <select id="scriptSelect" onchange="populateMetricSelect(); updateDashboard()" title="Select script">
+                    <option value="">-- All Scripts --</option>
+                </select>
+                <select id="metricSelect" onchange="updateCharts()" title="Select metric">
+                    <option value="execution_time_seconds">Execution Time</option>
+                    <option value="cpu_max">CPU Max</option>
+                    <option value="memory_max_mb">Memory Max</option>
+                </select>
+                <button onclick="updateDashboard()">🔄 Refresh</button>
+                <button onclick="exportData()">📥 Export Data</button>
             </div>
-            <div class="chart-container" style="height: 300px;">
-                <h3 class="chart-title">Distribution</h3>
-                <canvas id="distributionChart"></canvas>
+
+            <!-- Charts -->
+            <div class="chart-container">
+                <h3 class="chart-title">Execution Time Trend</h3>
+                <canvas id="trendChart"></canvas>
+            </div>
+
+            <div class="grid">
+                <div class="chart-container" style="height: 300px;">
+                    <h3 class="chart-title">Metrics Summary</h3>
+                    <canvas id="metricsChart"></canvas>
+                </div>
+                <div class="chart-container" style="height: 300px;">
+                    <h3 class="chart-title">Distribution</h3>
+                    <canvas id="distributionChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Recent Executions -->
+            <div class="executions-table">
+                <h3 style="margin-bottom: 20px; font-size: 1.2em; font-weight: 600; color: #333;">Recent Executions</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Script</th>
+                            <th>Status</th>
+                            <th>Exit Code</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="executionsTable"></tbody>
+                </table>
             </div>
         </div>
 
-        <!-- Recent Executions -->
-        <div class="executions-table">
-            <h3 style="margin-bottom: 20px; font-size: 1.2em; font-weight: 600; color: #333;">Recent Executions</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Timestamp</th>
-                        <th>Script</th>
-                        <th>Status</th>
-                        <th>Exit Code</th>
-                        <th>Action</th>
-                    </tr>
-                </thead>
-                <tbody id="executionsTable"></tbody>
-            </table>
+        <!-- WORKFLOWS TAB (V7.0) -->
+        <div id="workflows-tab" class="tab-content">
+            <div class="controls">
+                <input type="text" id="workflowName" placeholder="Workflow name" style="flex: 1;">
+                <button onclick="createWorkflow()">➕ Create Workflow</button>
+                <button onclick="executeWorkflow()">▶ Execute</button>
+            </div>
+
+            <div class="dag-container">
+                <h3 class="chart-title">Workflow DAG</h3>
+                <div id="dagVisualization" style="overflow-x: auto; padding: 20px;">
+                    <p style="color: #999;">Select a workflow to visualize its DAG</p>
+                </div>
+            </div>
+
+            <div class="executions-table">
+                <h3 style="margin-bottom: 20px; font-size: 1.2em; font-weight: 600; color: #333;">Workflow Executions</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Workflow ID</th>
+                            <th>Name</th>
+                            <th>Status</th>
+                            <th>Tasks</th>
+                            <th>Started</th>
+                        </tr>
+                    </thead>
+                    <tbody id="workflowsTable"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- SECURITY TAB (V7.0) -->
+        <div id="security-tab" class="tab-content">
+            <div class="controls">
+                <input type="file" id="codeFile" accept=".py,.js,.ts,.go,.java" title="Select code file" style="flex: 1;">
+                <button onclick="analyzeCode()">🔍 Analyze Code</button>
+                <button onclick="scanDependencies()">📦 Scan Dependencies</button>
+                <button onclick="scanSecrets()">🔑 Scan Secrets</button>
+            </div>
+
+            <div class="findings-list">
+                <h3 style="margin-bottom: 20px; font-size: 1.2em; font-weight: 600; color: #333;">Security Findings</h3>
+                <div id="findingsContainer">
+                    <p style="color: #999; text-align: center; padding: 30px;">No findings yet. Run a scan to see results.</p>
+                </div>
+            </div>
+
+            <div class="chart-container" style="height: 300px; margin-top: 20px;">
+                <h3 class="chart-title">Vulnerability Summary</h3>
+                <canvas id="vulnerabilityChart"></canvas>
+            </div>
+        </div>
+
+        <!-- TRACING TAB (V7.0) -->
+        <div id="tracing-tab" class="tab-content">
+            <div class="controls">
+                <input type="text" id="executionIdInput" placeholder="Execution ID" style="flex: 1;">
+                <button onclick="loadTraces()">📥 Load Traces</button>
+                <button onclick="exportTraces()">📤 Export Traces</button>
+            </div>
+
+            <div class="trace-timeline">
+                <h3 style="margin-bottom: 20px; font-size: 1.2em; font-weight: 600; color: #333;">Trace Timeline</h3>
+                <div id="traceContainer">
+                    <p style="color: #999; text-align: center; padding: 30px;">No traces loaded. Enter execution ID to load.</p>
+                </div>
+            </div>
+
+            <div class="chart-container" style="height: 300px; margin-top: 20px;">
+                <h3 class="chart-title">Span Duration Distribution</h3>
+                <canvas id="spanDurationChart"></canvas>
+            </div>
+        </div>
+
+        <!-- COSTS TAB (V7.0) -->
+        <div id="costs-tab" class="tab-content">
+            <div class="grid">
+                <div class="cost-breakdown">
+                    <h3 style="margin-bottom: 20px; font-size: 1.2em; font-weight: 600; color: #333;">Monthly Cost Summary</h3>
+                    <div class="cost-total" id="monthlyCostTotal">$0.00</div>
+                    <div class="cost-row">
+                        <span class="cost-label">AWS Costs</span>
+                        <span class="cost-value" id="awsCost">$0.00</span>
+                    </div>
+                    <div class="cost-row">
+                        <span class="cost-label">Azure Costs</span>
+                        <span class="cost-value" id="azureCost">$0.00</span>
+                    </div>
+                    <div class="cost-row">
+                        <span class="cost-label">GCP Costs</span>
+                        <span class="cost-value" id="gcpCost">$0.00</span>
+                    </div>
+                </div>
+
+                <div class="cost-breakdown">
+                    <h3 style="margin-bottom: 20px; font-size: 1.2em; font-weight: 600; color: #333;">Resource Breakdown</h3>
+                    <div class="cost-row">
+                        <span class="cost-label">Compute</span>
+                        <span class="cost-value" id="computeCost">$0.00</span>
+                    </div>
+                    <div class="cost-row">
+                        <span class="cost-label">Storage</span>
+                        <span class="cost-value" id="storageCost">$0.00</span>
+                    </div>
+                    <div class="cost-row">
+                        <span class="cost-label">Data Transfer</span>
+                        <span class="cost-value" id="dataCost">$0.00</span>
+                    </div>
+                    <div class="cost-row">
+                        <span class="cost-label">Other Services</span>
+                        <span class="cost-value" id="otherCost">$0.00</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="chart-container" style="height: 300px;">
+                <h3 class="chart-title">Cost Trends (Last 30 days)</h3>
+                <canvas id="costTrendChart"></canvas>
+            </div>
+
+            <div class="chart-container" style="height: 300px; margin-top: 20px;">
+                <h3 class="chart-title">Cost Breakdown by Provider</h3>
+                <canvas id="costBreakdownChart"></canvas>
+            </div>
         </div>
     </div>
 
     <script>
-        let trendChart, metricsChart, distributionChart;
+        let trendChart, metricsChart, distributionChart, vulnerabilityChart, costTrendChart, costBreakdownChart, spanDurationChart;
         let ws = null;
         let metricsData = [];
+        let currentTab = 'metrics';
 
-        // Initialize WebSocket connection
+        // ============================================================================
+        // TAB MANAGEMENT (V7.0)
+        // ============================================================================
+
+        function switchTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Deactivate all buttons
+            document.querySelectorAll('.tab-button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+
+            // Show selected tab
+            const tabElement = document.getElementById(`${tabName}-tab`);
+            if (tabElement) {
+                tabElement.classList.add('active');
+            }
+
+            // Activate button
+            event.target.classList.add('active');
+            currentTab = tabName;
+
+            // Initialize tab-specific features
+            if (tabName === 'workflows') {
+                loadWorkflows();
+            } else if (tabName === 'security') {
+                loadSecurityFindings();
+            } else if (tabName === 'tracing') {
+                loadTraces();
+            } else if (tabName === 'costs') {
+                loadCostsSummary();
+            }
+        }
+
+        // ============================================================================
+        // WORKFLOW FUNCTIONS (V7.0)
+        // ============================================================================
+
+        async function createWorkflow() {
+            const name = document.getElementById('workflowName').value;
+            if (!name) {
+                showError('Please enter a workflow name');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/workflows/create', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: name,
+                        tasks: [],
+                        timeout_seconds: 3600
+                    })
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    showSuccess(`Workflow created: ${result.workflow_id}`);
+                    document.getElementById('workflowName').value = '';
+                    loadWorkflows();
+                } else {
+                    showError(`Failed to create workflow: ${result.message}`);
+                }
+            } catch (error) {
+                showError(`Error creating workflow: ${error.message}`);
+            }
+        }
+
+        async function executeWorkflow() {
+            // This would require workflow selection UI
+            showSuccess('Workflow execution started (requires UI selection)');
+        }
+
+        async function loadWorkflows() {
+            try {
+                const response = await fetch('/api/workflows/list');
+                const workflows = await response.json();
+
+                const tbody = document.getElementById('workflowsTable');
+                if (!workflows || workflows.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #999;">No workflows yet. Create one to get started.</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = workflows.map(w => `
+                    <tr>
+                        <td>${w.id || 'N/A'}</td>
+                        <td>${w.name || 'Unnamed'}</td>
+                        <td><span class="badge ${w.status === 'completed' ? 'badge-success' : 'badge-error'}">${w.status || 'unknown'}</span></td>
+                        <td>${w.task_count || 0}</td>
+                        <td>${w.started_at ? new Date(w.started_at).toLocaleString() : 'N/A'}</td>
+                    </tr>
+                `).join('');
+            } catch (error) {
+                console.error('Error loading workflows:', error);
+            }
+        }
+
+        // ============================================================================
+        // SECURITY FUNCTIONS (V7.0)
+        // ============================================================================
+
+        async function analyzeCode() {
+            const fileInput = document.getElementById('codeFile');
+            if (!fileInput.files.length) {
+                showError('Please select a code file');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/security/analyze-code?file_path=${fileInput.files[0].name}`, {
+                    method: 'POST'
+                });
+                const result = await response.json();
+                displayFindings(result.findings || []);
+            } catch (error) {
+                showError(`Error analyzing code: ${error.message}`);
+            }
+        }
+
+        async function scanDependencies() {
+            try {
+                const response = await fetch('/api/security/scan-dependencies?requirements_file=requirements.txt', {
+                    method: 'POST'
+                });
+                const result = await response.json();
+                displayFindings(result.vulnerabilities || []);
+            } catch (error) {
+                showError(`Error scanning dependencies: ${error.message}`);
+            }
+        }
+
+        async function scanSecrets() {
+            const fileInput = document.getElementById('codeFile');
+            if (!fileInput.files.length) {
+                showError('Please select a file');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/security/scan-secrets?file_path=${fileInput.files[0].name}`, {
+                    method: 'POST'
+                });
+                const result = await response.json();
+                displayFindings(result.secrets || []);
+            } catch (error) {
+                showError(`Error scanning secrets: ${error.message}`);
+            }
+        }
+
+        function displayFindings(findings) {
+            const container = document.getElementById('findingsContainer');
+            
+            if (!findings || findings.length === 0) {
+                container.innerHTML = '<p style="color: #999; text-align: center; padding: 30px;">✓ No findings detected</p>';
+                return;
+            }
+
+            container.innerHTML = findings.map(f => `
+                <div class="finding-item ${f.severity ? f.severity.toLowerCase() : 'low'}">
+                    <div>
+                        <span class="finding-severity ${f.severity ? f.severity.toLowerCase() : 'low'}">
+                            ${f.severity || 'UNKNOWN'}
+                        </span>
+                        <strong>${f.title || f.name || 'Finding'}</strong>
+                    </div>
+                    <p style="margin: 8px 0; color: #666; font-size: 0.9em;">
+                        ${f.description || f.message || 'No description available'}
+                    </p>
+                    ${f.file ? `<p style="margin: 5px 0; color: #999; font-size: 0.85em;">📄 ${f.file}</p>` : ''}
+                </div>
+            `).join('');
+        }
+
+        async function loadSecurityFindings() {
+            try {
+                const response = await fetch('/api/security/findings');
+                const findings = await response.json();
+                displayFindings(findings || []);
+            } catch (error) {
+                console.error('Error loading findings:', error);
+            }
+        }
+
+        // ============================================================================
+        // TRACING FUNCTIONS (V7.0)
+        // ============================================================================
+
+        async function loadTraces() {
+            const executionId = document.getElementById('executionIdInput').value;
+            if (!executionId) {
+                const container = document.getElementById('traceContainer');
+                container.innerHTML = '<p style="color: #999; text-align: center; padding: 30px;">Enter an execution ID to load traces</p>';
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/traces/execution/${executionId}`);
+                const result = await response.json();
+                
+                const container = document.getElementById('traceContainer');
+                if (!result.traces || result.traces.length === 0) {
+                    container.innerHTML = '<p style="color: #999; text-align: center; padding: 30px;">No traces found for this execution</p>';
+                    return;
+                }
+
+                container.innerHTML = result.traces.map((trace, idx) => `
+                    <div class="trace-item" style="margin-left: ${(trace.depth || 0) * 20}px;">
+                        <div class="trace-name">${idx + 1}. ${trace.name || 'Unnamed span'}</div>
+                        <div class="trace-duration">${trace.duration_ms || 0}ms</div>
+                        <div class="trace-bar" style="width: ${Math.min(100, (trace.duration_ms || 0) / 10)}%;"></div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                showError(`Error loading traces: ${error.message}`);
+            }
+        }
+
+        async function exportTraces() {
+            const executionId = document.getElementById('executionIdInput').value;
+            if (!executionId) {
+                showError('Please enter an execution ID');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/traces/export/${executionId}`);
+                const blob = await response.blob();
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = `traces-${executionId}.json`;
+                link.click();
+                showSuccess('Traces exported successfully');
+            } catch (error) {
+                showError(`Error exporting traces: ${error.message}`);
+            }
+        }
+
+        // ============================================================================
+        // COSTS FUNCTIONS (V7.0)
+        // ============================================================================
+
+        async function loadCostsSummary() {
+            try {
+                const response = await fetch('/api/costs/monthly-summary');
+                const result = await response.json();
+
+                document.getElementById('monthlyCostTotal').textContent = 
+                    `$${(result.total_cost_usd || 0).toFixed(2)}`;
+
+                // These would be populated from actual cost data
+                // For now, showing placeholder values
+                const breakdown = {
+                    aws: result.total_cost_usd * 0.6 || 0,
+                    azure: result.total_cost_usd * 0.25 || 0,
+                    gcp: result.total_cost_usd * 0.15 || 0,
+                    compute: result.total_cost_usd * 0.5 || 0,
+                    storage: result.total_cost_usd * 0.25 || 0,
+                    data: result.total_cost_usd * 0.15 || 0,
+                    other: result.total_cost_usd * 0.1 || 0
+                };
+
+                document.getElementById('awsCost').textContent = `$${breakdown.aws.toFixed(2)}`;
+                document.getElementById('azureCost').textContent = `$${breakdown.azure.toFixed(2)}`;
+                document.getElementById('gcpCost').textContent = `$${breakdown.gcp.toFixed(2)}`;
+                document.getElementById('computeCost').textContent = `$${breakdown.compute.toFixed(2)}`;
+                document.getElementById('storageCost').textContent = `$${breakdown.storage.toFixed(2)}`;
+                document.getElementById('dataCost').textContent = `$${breakdown.data.toFixed(2)}`;
+                document.getElementById('otherCost').textContent = `$${breakdown.other.toFixed(2)}`;
+            } catch (error) {
+                console.error('Error loading costs:', error);
+            }
+        }
+
+        // ============================================================================
+        // EXISTING FUNCTIONS CONTINUE BELOW
+        // ============================================================================
         function initWebSocket() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             ws = new WebSocket(`${protocol}//${window.location.host}/ws/metrics`);
@@ -813,6 +1552,250 @@ ${exec.stderr || '(empty)'}
             div.textContent = message;
             document.body.insertBefore(div, document.body.firstChild);
             setTimeout(() => div.remove(), 3000);
+        }
+
+        // ================================================================
+        // V7 FEATURES: WORKFLOW FUNCTIONS
+        // ================================================================
+
+        function createWorkflow() {
+            const name = document.getElementById('workflowName').value;
+            if (!name) {
+                showError('Please enter a workflow name');
+                return;
+            }
+            fetch('/api/workflows/create', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name: name, definition: {}})
+            })
+            .then(r => r.json())
+            .then(data => {
+                showSuccess('Workflow created: ' + data.workflow_id);
+                loadWorkflows();
+            })
+            .catch(e => showError('Error: ' + e));
+        }
+
+        function executeWorkflow() {
+            const selection = prompt('Enter workflow ID to execute:');
+            if (!selection) return;
+            fetch(`/api/workflows/execute/${selection}`, {method: 'POST'})
+            .then(r => r.json())
+            .then(data => {
+                showSuccess('Workflow execution started');
+                loadWorkflows();
+            })
+            .catch(e => showError('Error: ' + e));
+        }
+
+        function loadWorkflows() {
+            fetch('/api/workflows/list')
+            .then(r => r.json())
+            .then(data => {
+                const tbody = document.getElementById('workflowsTable');
+                if (data.workflows && data.workflows.length > 0) {
+                    tbody.innerHTML = data.workflows.map(w => 
+                        `<tr>
+                            <td>${w.id || 'N/A'}</td>
+                            <td>${w.name || 'Unnamed'}</td>
+                            <td>${w.status || 'Unknown'}</td>
+                            <td>${w.task_count || 0}</td>
+                            <td>${w.started || 'N/A'}</td>
+                        </tr>`
+                    ).join('');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #999;">No workflows found</td></tr>';
+                }
+            })
+            .catch(e => console.error('Error loading workflows:', e));
+        }
+
+        // ================================================================
+        // V7 FEATURES: SECURITY FUNCTIONS
+        // ================================================================
+
+        function analyzeCode() {
+            const file = document.getElementById('codeFile').files[0];
+            if (!file) {
+                showError('Please select a file');
+                return;
+            }
+            const formData = new FormData();
+            formData.append('file', file);
+            fetch('/api/security/analyze-code', {method: 'POST', body: formData})
+            .then(r => r.json())
+            .then(data => displayCodeFindings(data))
+            .catch(e => showError('Error: ' + e));
+        }
+
+        function scanDependencies() {
+            const reqFile = prompt('Enter path to requirements.txt:');
+            if (!reqFile) return;
+            fetch(`/api/security/scan-dependencies?requirements_file=${encodeURIComponent(reqFile)}`)
+            .then(r => r.json())
+            .then(data => displayVulnerabilities(data))
+            .catch(e => showError('Error: ' + e));
+        }
+
+        function scanSecrets() {
+            const filePath = prompt('Enter file path to scan for secrets:');
+            if (!filePath) return;
+            fetch(`/api/security/scan-secrets?file_path=${encodeURIComponent(filePath)}`)
+            .then(r => r.json())
+            .then(data => displaySecrets(data))
+            .catch(e => showError('Error: ' + e));
+        }
+
+        function displayCodeFindings(data) {
+            const container = document.getElementById('findingsContainer');
+            if (data.findings && data.findings.length > 0) {
+                container.innerHTML = data.findings.map(f =>
+                    `<div class="finding severity-${f.severity.toLowerCase()}">
+                        <strong>${f.title}</strong> (${f.id})
+                        <p>${f.description}</p>
+                        <p style="font-size: 0.9em; color: #666;">${f.file_path}:${f.line_number}</p>
+                    </div>`
+                ).join('');
+            } else {
+                container.innerHTML = '<p style="color: #999; text-align: center;">No findings detected.</p>';
+            }
+        }
+
+        function displayVulnerabilities(data) {
+            const container = document.getElementById('findingsContainer');
+            if (data.vulnerabilities && data.vulnerabilities.length > 0) {
+                container.innerHTML = data.vulnerabilities.map(v =>
+                    `<div class="finding severity-${v.severity.toLowerCase()}">
+                        <strong>${v.package_name}@${v.package_version}</strong>
+                        <p>${v.title}</p>
+                        <p style="font-size: 0.9em; color: #666;">CVE: ${v.id} | Fixed in: ${v.fixed_version}</p>
+                    </div>`
+                ).join('');
+            } else {
+                container.innerHTML = '<p style="color: #999; text-align: center;">No vulnerabilities found.</p>';
+            }
+        }
+
+        function displaySecrets(data) {
+            const container = document.getElementById('findingsContainer');
+            if (data.secrets && data.secrets.length > 0) {
+                container.innerHTML = data.secrets.map(s =>
+                    `<div class="finding severity-high">
+                        <strong>🔑 ${s.type}</strong>
+                        <p>${s.file_path}:${s.line_number}</p>
+                        <p style="font-size: 0.9em; color: #666;">Confidence: ${(s.confidence * 100).toFixed(0)}%</p>
+                    </div>`
+                ).join('');
+            } else {
+                container.innerHTML = '<p style="color: #999; text-align: center;">No secrets detected.</p>';
+            }
+        }
+
+        // ================================================================
+        // V7 FEATURES: TRACING FUNCTIONS
+        // ================================================================
+
+        function loadTraces() {
+            const executionId = document.getElementById('executionIdInput').value;
+            if (!executionId) {
+                showError('Please enter an execution ID');
+                return;
+            }
+            fetch(`/api/traces/execution/${executionId}`)
+            .then(r => r.json())
+            .then(data => {
+                populateTraceTimeline(data.traces || []);
+            })
+            .catch(e => showError('Error: ' + e));
+        }
+
+        function populateTraceTimeline(traces) {
+            const container = document.getElementById('traceContainer');
+            if (traces.length > 0) {
+                container.innerHTML = traces.map(t =>
+                    `<div class="trace-span">
+                        <span class="span-name">${t.name}</span>
+                        <span class="span-duration">${(t.duration_ms).toFixed(2)}ms</span>
+                        <span class="span-status">${t.status}</span>
+                    </div>`
+                ).join('');
+            } else {
+                container.innerHTML = '<p style="color: #999; text-align: center;">No traces found.</p>';
+            }
+        }
+
+        function exportTraces() {
+            const executionId = document.getElementById('executionIdInput').value;
+            if (!executionId) {
+                showError('Please enter an execution ID');
+                return;
+            }
+            fetch(`/api/traces/export/${executionId}`)
+            .then(r => r.blob())
+            .then(blob => {
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = `traces-${executionId}.json`;
+                link.click();
+                showSuccess('Traces exported successfully');
+            })
+            .catch(e => showError('Export failed: ' + e));
+        }
+
+        // ================================================================
+        // V7 FEATURES: COST FUNCTIONS
+        // ================================================================
+
+        function loadCosts() {
+            fetch('/api/costs/summary')
+            .then(r => r.json())
+            .then(data => {
+                updateCostDisplay(data);
+            })
+            .catch(e => console.error('Error loading costs:', e));
+        }
+
+        function updateCostDisplay(data) {
+            const total = data.total_cost_usd || 0;
+            document.getElementById('monthlyCostTotal').textContent = '$' + total.toFixed(2);
+            document.getElementById('awsCost').textContent = '$' + (data.breakdown?.aws || 0).toFixed(2);
+            document.getElementById('azureCost').textContent = '$' + (data.breakdown?.azure || 0).toFixed(2);
+            document.getElementById('gcpCost').textContent = '$' + (data.breakdown?.gcp || 0).toFixed(2);
+            
+            if (data.resources) {
+                const tbody = document.getElementById('costDetailsTable') || createCostTable();
+                tbody.innerHTML = data.resources.map(r =>
+                    `<tr>
+                        <td>${r.resource_id}</td>
+                        <td>${r.resource_type}</td>
+                        <td>${r.provider}</td>
+                        <td>${r.duration}ms</td>
+                        <td>$${r.estimated_cost_usd.toFixed(2)}</td>
+                    </tr>`
+                ).join('');
+            }
+        }
+
+        function createCostTable() {
+            const container = document.getElementById('costDetails') || document.querySelector('.costs-table');
+            if (!container) return null;
+            const tbody = document.createElement('tbody');
+            tbody.id = 'costDetailsTable';
+            container.appendChild(tbody);
+            return tbody;
+        }
+
+        // ================================================================
+        // V7 FEATURES: UTILITY FUNCTIONS
+        // ================================================================
+
+        function updateSecurityDashboard(data) {
+            const findings = data.findings || [];
+            const critical = findings.filter(f => f.severity === 'CRITICAL').length;
+            const high = findings.filter(f => f.severity === 'HIGH').length;
+            const medium = findings.filter(f => f.severity === 'MEDIUM').length;
+            const low = findings.filter(f => f.severity === 'LOW').length;
         }
 
         // Initialize on page load
