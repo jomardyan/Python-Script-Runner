@@ -10,12 +10,26 @@
 - Write access to the repository
 - (Optional) PyInstaller for Windows builds, dpkg-deb for Linux builds
 
+### 💡 Pro Tip: Get Current Version
+```bash
+# Get the current version automatically
+VERSION=$(grep '^version = ' pyproject.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+echo "Current version: $VERSION"
+
+# Or use the version command
+bash release.sh version
+```
+
 ### One-Command Release (Automated)
 ```bash
 # Bump patch version and prepare everything
-bash release.sh bump patch        # Step 1: Auto-bump version
-bash release.sh prepare-release   # Step 2: Create release tag
-bash release.sh publish           # Step 3: Push to GitHub
+bash release.sh bump patch                    # Step 1: Auto-bump version (creates 7.0.1)
+bash release.sh prepare-release 7.0.1         # Step 2: Create release tag
+bash release.sh publish 7.0.1                 # Step 3: Push to GitHub
+
+# Or use the full-release command for everything:
+bash release.sh bump patch
+bash release.sh full-release 7.0.1            # Does prepare + publish + builds
 ```
 
 ---

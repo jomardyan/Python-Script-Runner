@@ -1421,19 +1421,19 @@ case "${1:-help}" in
         cmd_build_bundles
         ;;
     build-exe)
-        cmd_build_exe "$2"
+        cmd_build_exe "${2:-}"
         ;;
     build-deb)
-        cmd_build_deb "$2"
+        cmd_build_deb "${2:-}"
         ;;
     prepare-release)
-        cmd_prepare_release "$2"
+        cmd_prepare_release "${2:-}"
         ;;
     publish)
-        cmd_publish "$2"
+        cmd_publish "${2:-}"
         ;;
     full-release)
-        cmd_full_release "$2"
+        cmd_full_release "${2:-}"
         ;;
     help|--help|-h)
         show_help
