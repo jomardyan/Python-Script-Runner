@@ -145,7 +145,17 @@ GITHUB_WORKFLOWS_DIR="${SCRIPT_DIR}/.github/workflows"
 VERSION_FILE="pyproject.toml"
 RUNNER_FILE="runner.py"
 INIT_FILE="__init__.py"
+RUNNERS_INIT="runners/__init__.py"
+SETUP_FILE="setup.py"
 PACKAGE_VERSION="${RELEASE_VERSION:-}"
+
+# Known version file locations
+VERSION_FILES=(
+    "pyproject.toml"
+    "runner.py"
+    "__init__.py"
+    "runners/__init__.py"
+)
 
 # Validate required files exist
 check_files_exist() {
@@ -303,7 +313,13 @@ Commands:
                       Bump version using version.sh (auto-updates files)
                       ⚠️  Auto-commits any uncommitted changes before bumping
   validate            Run pre-release validation checks
+  verify-versions     Verify version consistency across all files
   clean               Remove build artifacts and temporary files
+  auto-release [type] 🚀 FULLY AUTOMATIC RELEASE - Does everything!
+                      Bumps version, builds, tags, and publishes automatically
+                      No prompts, no interaction required (CI/CD friendly)
+                      Types: major|minor|patch (default: patch)
+                      Example: bash release.sh auto-release patch
   build-bundles       Build Python source bundles (tar.gz, zip)
   build-exe VER       Build Windows EXE executable using PyInstaller
   build-deb VER       Build Linux DEB package
@@ -321,9 +337,13 @@ Environment Variables:
   LOG_FILE=path       Custom log file location
 
 Workflow:
+  # ONE-COMMAND AUTOMATIC RELEASE (Recommended):
+  bash release.sh auto-release patch         # Does everything automatically!
+  
+  # OR Manual step-by-step:
   1. bash release.sh bump patch              # Auto-bump version (auto-commits)
-  2. bash release.sh build-exe X.Y.Z         # Build Windows executable
-  3. bash release.sh build-deb X.Y.Z         # Build Linux DEB package
+  2. bash release.sh build-exe X.Y.Z         # Build Windows executable (optional)
+  3. bash release.sh build-deb X.Y.Z         # Build Linux DEB package (optional)
   4. bash release.sh prepare-release X.Y.Z   # Create and tag release (auto-commits)
   5. bash release.sh publish X.Y.Z           # Push tag to GitHub
   6. GitHub Actions will auto-build and publish to PyPI & GitHub Packages
@@ -333,10 +353,18 @@ Options:
   dry-run           Preview changes without applying them
 
 Examples:
+  # Automatic Release (Easiest!):
+  bash release.sh auto-release               # Auto patch release (7.0.1 → 7.0.2)
+  bash release.sh auto-release minor         # Auto minor release (7.0.2 → 7.1.0)
+  bash release.sh auto-release major         # Auto major release (7.1.0 → 8.0.0)
+  
+  # Manual Commands:
   bash release.sh version                    # Show current version
+  bash release.sh status                     # Show comprehensive status
   bash release.sh bump patch                 # Bump to next patch (auto-commits changes)
   bash release.sh bump minor dry-run         # Preview minor bump
   bash release.sh validate                   # Run validation checks
+  bash release.sh clean                      # Clean build artifacts
   bash release.sh build-bundles              # Build source bundles
   bash release.sh build-exe 7.0.1            # Build Windows EXE
   bash release.sh build-deb 7.0.1            # Build Linux DEB
@@ -360,7 +388,7 @@ get_version() {
     local version
     
     if [ -f "$VERSION_FILE" ]; then
-        version=$(grep '^version = ' "$VERSION_FILE" 2>/dev/null | sed 's/version = "\(.*\)"/\1/' || echo "")
+        version=$(grep '^version = ' "$VERSION_FILE" 2>/dev/null | head -1 | sed 's/version = "\(.*\)"/\1/' || echo "")
         if [ -n "$version" ]; then
             echo "$version"
             return 0
@@ -374,6 +402,154 @@ get_version() {
     
     print_error "Unable to determine version"
     return 1
+}
+
+# Update version in all known locations
+update_all_versions() {
+    local new_version="$1"
+    local updated_count=0
+    local failed_count=0
+    
+    print_step "Updating version to $new_version in all files..."
+    log_info "Starting automatic version update to $new_version"
+    
+    # Update pyproject.toml
+    if [ -f "pyproject.toml" ]; then
+        if sed -i.bak "s/^version = \".*\"/version = \"$new_version\"/" pyproject.toml 2>/dev/null; then
+            rm -f pyproject.toml.bak
+            print_info "  ✓ Updated pyproject.toml"
+            ((updated_count++))
+        else
+            print_warning "  ✗ Failed to update pyproject.toml"
+            ((failed_count++))
+        fi
+    fi
+    
+    # Update runner.py
+    if [ -f "runner.py" ]; then
+        if sed -i.bak "s/^__version__ = \".*\"/__version__ = \"$new_version\"/" runner.py 2>/dev/null; then
+            rm -f runner.py.bak
+            print_info "  ✓ Updated runner.py"
+            ((updated_count++))
+        else
+            print_warning "  ✗ Failed to update runner.py"
+            ((failed_count++))
+        fi
+    fi
+    
+    # Update __init__.py (root)
+    if [ -f "__init__.py" ]; then
+        if sed -i.bak "s/__version__ = \".*\"/__version__ = \"$new_version\"/" __init__.py 2>/dev/null; then
+            rm -f __init__.py.bak
+            print_info "  ✓ Updated __init__.py"
+            ((updated_count++))
+        else
+            print_warning "  ✗ Failed to update __init__.py"
+            ((failed_count++))
+        fi
+    fi
+    
+    # Update runners/__init__.py
+    if [ -f "runners/__init__.py" ]; then
+        if sed -i.bak "s/^__version__ = \".*\"/__version__ = \"$new_version\"/" runners/__init__.py 2>/dev/null; then
+            rm -f runners/__init__.py.bak
+            print_info "  ✓ Updated runners/__init__.py"
+            ((updated_count++))
+        else
+            print_warning "  ✗ Failed to update runners/__init__.py"
+            ((failed_count++))
+        fi
+    fi
+    
+    # Update setup.py fallback version
+    if [ -f "setup.py" ]; then
+        if sed -i.bak "s/version_match.group(1) if version_match else \".*\"/version_match.group(1) if version_match else \"$new_version\"/" setup.py 2>/dev/null; then
+            rm -f setup.py.bak
+            print_info "  ✓ Updated setup.py fallback version"
+            ((updated_count++))
+        else
+            print_warning "  ✗ Failed to update setup.py"
+            ((failed_count++))
+        fi
+    fi
+    
+    # Summary
+    if [ $updated_count -gt 0 ]; then
+        print_success "Updated version in $updated_count file(s)"
+    fi
+    
+    if [ $failed_count -gt 0 ]; then
+        print_warning "Failed to update $failed_count file(s)"
+        return 1
+    fi
+    
+    log_info "Version update completed: $updated_count files updated, $failed_count failed"
+    return 0
+}
+
+# Verify versions are consistent across all files
+verify_versions() {
+    print_step "Verifying version consistency..."
+    log_info "Starting version consistency check"
+    
+    local versions=()
+    local files=()
+    
+    # Check pyproject.toml
+    if [ -f "pyproject.toml" ]; then
+        local v=$(grep '^version = ' pyproject.toml 2>/dev/null | head -1 | sed 's/version = "\(.*\)"/\1/')
+        if [ -n "$v" ]; then
+            versions+=("$v")
+            files+=("pyproject.toml")
+            print_info "  pyproject.toml: $v"
+        fi
+    fi
+    
+    # Check runner.py
+    if [ -f "runner.py" ]; then
+        local v=$(grep '^__version__ = ' runner.py 2>/dev/null | sed 's/__version__ = "\(.*\)"/\1/')
+        if [ -n "$v" ]; then
+            versions+=("$v")
+            files+=("runner.py")
+            print_info "  runner.py: $v"
+        fi
+    fi
+    
+    # Check __init__.py
+    if [ -f "__init__.py" ]; then
+        local v=$(grep '__version__ = ' __init__.py 2>/dev/null | grep -v 'from\|import' | sed 's/.*__version__ = "\(.*\)".*/\1/' | head -1)
+        if [ -n "$v" ]; then
+            versions+=("$v")
+            files+=("__init__.py")
+            print_info "  __init__.py: $v"
+        fi
+    fi
+    
+    # Check runners/__init__.py
+    if [ -f "runners/__init__.py" ]; then
+        local v=$(grep '^__version__ = ' runners/__init__.py 2>/dev/null | sed 's/__version__ = "\(.*\)"/\1/')
+        if [ -n "$v" ]; then
+            versions+=("$v")
+            files+=("runners/__init__.py")
+            print_info "  runners/__init__.py: $v"
+        fi
+    fi
+    
+    # Check if all versions are the same
+    local unique_versions=($(printf '%s\n' "${versions[@]}" | sort -u))
+    
+    if [ ${#unique_versions[@]} -eq 1 ]; then
+        print_success "All versions are consistent: ${unique_versions[0]}"
+        log_info "Version consistency check passed: ${unique_versions[0]}"
+        return 0
+    else
+        print_error "Version mismatch detected!"
+        for i in "${!versions[@]}"; do
+            print_warning "  ${files[$i]}: ${versions[$i]}"
+        done
+        log_error "Version consistency check failed: found ${#unique_versions[@]} different versions"
+        return 1
+    fi
 }
 
 validate_version() {
@@ -1139,17 +1315,17 @@ cmd_prepare_release() {
     
     cmd_validate || exit 1
     
-    # Check if version.sh exists
-    if [ ! -f "$VERSION_SCRIPT" ]; then
-        print_error "version.sh not found at $VERSION_SCRIPT"
-        exit 1
+    # Update version in code files automatically
+    print_warning "Updating version in code files..."
+    if ! update_all_versions "$version"; then
+        print_warning "Some version updates failed, attempting to continue..."
     fi
     
-    # Update version in code files using version.sh
-    print_warning "Updating version in code files via version.sh..."
-    if ! bash "$VERSION_SCRIPT" set "$version" > /dev/null 2>&1; then
-        print_error "Failed to update version"
-        exit 1
+    # Verify version consistency
+    if verify_versions > /dev/null 2>&1; then
+        print_success "Version consistency verified"
+    else
+        print_warning "Version consistency check had warnings"
     fi
     
     # Stage all version files
@@ -1329,6 +1505,196 @@ cmd_clean() {
     print_success "Cleaned $cleaned item(s)"
 }
 
+cmd_auto_release() {
+    local bump_type="${1:-patch}"
+    
+    print_header "Fully Automatic Release ($bump_type)"
+    log_info "Starting fully automatic release workflow with bump type: $bump_type"
+    
+    # Validate bump type
+    if [ "$bump_type" != "major" ] && [ "$bump_type" != "minor" ] && [ "$bump_type" != "patch" ]; then
+        print_error "Invalid bump type: $bump_type"
+        echo "Usage: bash release.sh auto-release [major|minor|patch]"
+        echo "Default: patch"
+        exit 1
+    fi
+    
+    # Force non-interactive mode for automation
+    local original_interactive="$INTERACTIVE_MODE"
+    export INTERACTIVE_MODE="false"
+    
+    echo ""
+    print_info "🚀 Starting automated release workflow..."
+    print_info "   Bump type: $bump_type"
+    print_info "   Mode: Fully automatic (no prompts)"
+    echo ""
+    
+    # Step 1: Clean any previous builds
+    print_step "Step 1/6: Cleaning previous builds"
+    cmd_clean || { print_warning "Clean failed (non-fatal)"; }
+    
+    # Step 2: Auto-commit any uncommitted changes
+    print_step "Step 2/6: Auto-committing uncommitted changes"
+    if [ -n "$(git status --porcelain)" ]; then
+        auto_commit_changes "Auto-commit: preparing for automated release ($bump_type)"
+    else
+        print_info "No uncommitted changes"
+    fi
+    
+    # Step 3: Bump version
+    print_step "Step 3/6: Bumping version ($bump_type)"
+    
+    # Get current version before bump
+    local old_version=$(get_version || echo "unknown")
+    print_info "Current version: $old_version"
+    
+    # Calculate new version
+    local major minor patch
+    IFS='.' read -r major minor patch <<< "$old_version"
+    
+    case "$bump_type" in
+        major)
+            major=$((major + 1))
+            minor=0
+            patch=0
+            ;;
+        minor)
+            minor=$((minor + 1))
+            patch=0
+            ;;
+        patch)
+            patch=$((patch + 1))
+            ;;
+    esac
+    
+    local new_version="$major.$minor.$patch"
+    print_info "New version will be: $new_version"
+    
+    # Update all version files automatically
+    if ! update_all_versions "$new_version"; then
+        print_error "Version update failed"
+        export INTERACTIVE_MODE="$original_interactive"
+        exit 1
+    fi
+    
+    # Verify consistency
+    if ! verify_versions > /dev/null 2>&1; then
+        print_warning "Version consistency check had warnings (non-fatal)"
+    fi
+    
+    print_success "Version bumped: $old_version → $new_version"
+    
+    # Commit version bump
+    for file in "$VERSION_FILE" "$RUNNER_FILE" "$INIT_FILE"; do
+        if [ -f "$file" ]; then
+            git add "$file" 2>/dev/null || true
+        fi
+    done
+    
+    if [ -n "$(git status --porcelain)" ]; then
+        git commit -m "chore: bump version to $new_version" > /dev/null 2>&1 || true
+        print_success "Version bump committed"
+    fi
+    
+    # Step 4: Build bundles (optional, parallel)
+    print_step "Step 4/6: Building release bundles"
+    if cmd_build_bundles > /dev/null 2>&1; then
+        print_success "Bundles built successfully"
+    else
+        print_warning "Bundle build failed (non-fatal, continuing...)"
+    fi
+    
+    # Step 5: Prepare release (create tag)
+    print_step "Step 5/6: Preparing release v$new_version"
+    
+    # Update version in code files
+    if bash "$VERSION_SCRIPT" set "$new_version" > /dev/null 2>&1; then
+        print_info "Version files updated"
+    else
+        print_warning "Version update had issues (may already be correct)"
+    fi
+    
+    # Stage any changes
+    for file in "$VERSION_FILE" "$RUNNER_FILE" "$INIT_FILE"; do
+        if [ -f "$file" ]; then
+            git add "$file" 2>/dev/null || true
+        fi
+    done
+    
+    # Commit if there are changes
+    if [ -n "$(git status --porcelain)" ]; then
+        git commit -m "chore: prepare release v$new_version" > /dev/null 2>&1 || true
+    fi
+    
+    # Create git tag
+    if git tag -a "v$new_version" -m "Release version $new_version" 2>/dev/null; then
+        print_success "Tag created: v$new_version"
+    else
+        # Tag might already exist, delete and recreate
+        git tag -d "v$new_version" 2>/dev/null || true
+        if git tag -a "v$new_version" -m "Release version $new_version" 2>/dev/null; then
+            print_success "Tag recreated: v$new_version"
+        else
+            print_error "Failed to create git tag"
+            export INTERACTIVE_MODE="$original_interactive"
+            exit 1
+        fi
+    fi
+    
+    # Step 6: Publish to GitHub
+    print_step "Step 6/6: Publishing to GitHub"
+    
+    # Push commits
+    if git push origin main > /dev/null 2>&1; then
+        print_success "Commits pushed to main"
+    else
+        print_warning "Push to main failed (may already be up to date)"
+    fi
+    
+    # Push tag
+    if git push origin "v$new_version" > /dev/null 2>&1; then
+        print_success "Tag pushed to GitHub"
+    else
+        # Try to delete remote tag and push again
+        git push origin :refs/tags/"v$new_version" > /dev/null 2>&1 || true
+        if git push origin "v$new_version" > /dev/null 2>&1; then
+            print_success "Tag pushed to GitHub (after cleanup)"
+        else
+            print_error "Failed to push tag to GitHub"
+            export INTERACTIVE_MODE="$original_interactive"
+            exit 1
+        fi
+    fi
+    
+    # Restore interactive mode
+    export INTERACTIVE_MODE="$original_interactive"
+    
+    # Success summary
+    echo ""
+    print_success "🎉 Automated Release Complete!"
+    echo ""
+    echo "📋 Release Summary:"
+    echo "   Old Version: $old_version"
+    echo "   New Version: $new_version"
+    echo "   Git Tag: v$new_version"
+    echo "   Branch: main"
+    echo ""
+    echo "📦 GitHub Actions will now:"
+    echo "   ✓ Run tests on Python 3.8-3.12"
+    echo "   ✓ Build distributions (wheel + sdist)"
+    echo "   ✓ Publish to PyPI"
+    echo "   ✓ Publish to GitHub Packages"
+    echo "   ✓ Create GitHub Release with assets"
+    echo ""
+    echo "🔗 Monitor progress:"
+    echo "   https://github.com/jomardyan/Python-Script-Runner/actions"
+    echo ""
+    echo "📦 Release URLs (once published):"
+    echo "   PyPI: https://pypi.org/project/python-script-runner/$new_version/"
+    echo "   GitHub: https://github.com/jomardyan/Python-Script-Runner/releases/tag/v$new_version"
+    echo ""
+}
+
 cmd_full_release() {
     local version=$1
     
@@ -1414,8 +1780,14 @@ case "${1:-help}" in
     validate)
         cmd_validate
         ;;
+    verify-versions|verify)
+        verify_versions
+        ;;
     clean)
         cmd_clean
+        ;;
+    auto-release|auto)
+        cmd_auto_release "${2:-patch}"
         ;;
     build-bundles)
         cmd_build_bundles

@@ -20,16 +20,36 @@ echo "Current version: $VERSION"
 bash release.sh version
 ```
 
-### One-Command Release (Automated)
-```bash
-# Bump patch version and prepare everything
-bash release.sh bump patch                    # Step 1: Auto-bump version (creates 7.0.1)
-bash release.sh prepare-release 7.0.1         # Step 2: Create release tag
-bash release.sh publish 7.0.1                 # Step 3: Push to GitHub
+### One-Command Release (Fully Automatic) 🚀
 
-# Or use the full-release command for everything:
-bash release.sh bump patch
-bash release.sh full-release 7.0.1            # Does prepare + publish + builds
+```bash
+# EASIEST WAY - One command does everything!
+bash release.sh auto-release patch            # Automatic patch release (7.0.1 → 7.0.2)
+bash release.sh auto-release minor            # Automatic minor release (7.0.1 → 7.1.0)
+bash release.sh auto-release major            # Automatic major release (7.0.1 → 8.0.0)
+
+# Default is patch if no argument:
+bash release.sh auto-release                  # Same as: auto-release patch
+```
+
+**What it does automatically:**
+1. Cleans build artifacts
+2. Auto-commits any changes
+3. Bumps version
+4. Commits version bump
+5. Builds bundles
+6. Creates git tag
+7. Pushes to GitHub
+8. Triggers CI/CD
+
+**No prompts, no interaction, fully automated!**
+
+### Alternative: Step-by-Step Release
+```bash
+# Manual control (if you prefer step-by-step):
+bash release.sh bump patch                    # Step 1: Auto-bump version (creates 7.0.2)
+bash release.sh prepare-release 7.0.2         # Step 2: Create release tag
+bash release.sh publish 7.0.2                 # Step 3: Push to GitHub
 ```
 
 ---

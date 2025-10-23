@@ -3,10 +3,12 @@
 ## Quick Start
 
 ```bash
-# One-command release (recommended)
-bash release.sh full-release X.Y.Z
+# ⭐ EASIEST - Fully automatic (recommended)
+bash release.sh auto-release patch      # One command does everything!
+bash release.sh auto-release minor      # For minor releases
+bash release.sh auto-release major      # For major releases
 
-# Step-by-step release
+# OR Manual step-by-step
 bash release.sh bump patch              # 1. Bump version
 bash release.sh validate                # 2. Validate
 bash release.sh build-bundles           # 3. Build bundles
@@ -18,6 +20,7 @@ bash release.sh publish X.Y.Z           # 5. Push to GitHub
 
 | Command | Purpose | Example |
 |---------|---------|---------|
+| `auto-release` ⭐ | **Automatic release** (one command!) | `bash release.sh auto-release patch` |
 | `status` | Show current state | `bash release.sh status` |
 | `validate` | Check if ready to release | `bash release.sh validate` |
 | `clean` | Remove build artifacts | `bash release.sh clean` |
