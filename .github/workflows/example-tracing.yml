@@ -7,6 +7,9 @@ on:
       - develop
   workflow_dispatch:
 
+# NOTE: Configure these secrets in your repository settings:
+# - OTEL_COLLECTOR_URL: Your OpenTelemetry collector endpoint URL
+
 jobs:
   trace-integration:
     runs-on: ubuntu-latest
@@ -15,6 +18,12 @@ jobs:
     steps:
       - name: 'Checkout code'
         uses: actions/checkout@v3
+
+      - name: 'Set up OpenTelemetry endpoint'
+        id: otel-config
+        env:
+          OTEL_URL: ${{ secrets.OTEL_COLLECTOR_URL }}
+        run: echo "OTEL_URL=${OTEL_URL}" >> $GITHUB_OUTPUT
 
       - name: 'Run traced job'
         uses: ./.github/actions/python-script-runner
@@ -29,11 +38,11 @@ jobs:
             opentelemetry-sdk
             opentelemetry-exporter-jaeger
         env:
-          OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_COLLECTOR_URL }}
+          OTEL_EXPORTER_OTLP_ENDPOINT: ${{ steps.otel-config.outputs.OTEL_URL }}
           OTEL_SERVICE_NAME: 'python-script-runner'
 
       - name: 'Check trace upload'
         if: always()
         run: |
           echo "Trace data should be visible in your collector at:"
-          echo "${{ secrets.OTEL_COLLECTOR_URL }}"
+          echo "${{ steps.otel-config.outputs.OTEL_URL }}"

@@ -5,6 +5,9 @@ on:
     - cron: '0 2 * * *'  # Run daily at 2 AM UTC
   workflow_dispatch:  # Allow manual trigger
 
+# NOTE: Configure these secrets in your repository settings:
+# - SLACK_WEBHOOK: Your Slack incoming webhook URL
+
 jobs:
   etl-pipeline:
     runs-on: ubuntu-latest
@@ -39,7 +42,8 @@ jobs:
       - name: 'Notify on failure'
         if: failure()
         uses: 8398a7/action-slack@v3
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
         with:
           status: ${{ job.status }}
           text: 'ETL Pipeline failed'
-          webhook_url: ${{ secrets.SLACK_WEBHOOK }}

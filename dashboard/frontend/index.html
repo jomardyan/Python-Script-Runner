@@ -604,6 +604,67 @@
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
 
+        /* Inline style classes for HTML elements */
+        .flex-between {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .flex-full {
+            flex: 1;
+        }
+
+        .overflow-auto {
+            overflow-x: auto;
+            padding: 20px;
+        }
+
+        .margin-bottom-20 {
+            margin-bottom: 20px;
+        }
+
+        .font-size-12em {
+            font-size: 1.2em;
+        }
+
+        .font-weight-600 {
+            font-weight: 600;
+        }
+
+        .color-333 {
+            color: #333;
+        }
+
+        .color-999 {
+            color: #999;
+        }
+
+        .text-center {
+            text-align: center;
+        }
+
+        .padding-30 {
+            padding: 30px;
+        }
+
+        .height-300 {
+            height: 300px;
+        }
+
+        .margin-top-20 {
+            margin-top: 20px;
+        }
+
+        .text-align-center {
+            text-align: center;
+        }
+
+        .link-color {
+            color: #667eea;
+            text-decoration: none;
+        }
+
         @media (max-width: 768px) {
             .grid {
                 grid-template-columns: 1fr;
@@ -638,7 +699,7 @@
 <body>
     <div class="container">
         <header>
-            <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div class="flex-between">
                 <div>
                     <h1>📊 Script Runner Dashboard v7.0</h1>
                     <div class="header-status">
@@ -687,11 +748,11 @@
             </div>
 
             <div class="grid">
-                <div class="chart-container" style="height: 300px;">
+                <div class="chart-container height-300">
                     <h3 class="chart-title">Metrics Summary</h3>
                     <canvas id="metricsChart"></canvas>
                 </div>
-                <div class="chart-container" style="height: 300px;">
+                <div class="chart-container height-300">
                     <h3 class="chart-title">Distribution</h3>
                     <canvas id="distributionChart"></canvas>
                 </div>
@@ -699,7 +760,7 @@
 
             <!-- Recent Executions -->
             <div class="executions-table">
-                <h3 style="margin-bottom: 20px; font-size: 1.2em; font-weight: 600; color: #333;">Recent Executions</h3>
+                <h3 class="margin-bottom-20 font-size-12em font-weight-600 color-333">Recent Executions</h3>
                 <table>
                     <thead>
                         <tr>
@@ -718,20 +779,20 @@
         <!-- WORKFLOWS TAB (V7.0) -->
         <div id="workflows-tab" class="tab-content">
             <div class="controls">
-                <input type="text" id="workflowName" placeholder="Workflow name" style="flex: 1;">
+                <input type="text" id="workflowName" placeholder="Workflow name" class="flex-full">
                 <button onclick="createWorkflow()">➕ Create Workflow</button>
                 <button onclick="executeWorkflow()">▶ Execute</button>
             </div>
 
             <div class="dag-container">
                 <h3 class="chart-title">Workflow DAG</h3>
-                <div id="dagVisualization" style="overflow-x: auto; padding: 20px;">
-                    <p style="color: #999;">Select a workflow to visualize its DAG</p>
+                <div id="dagVisualization" class="overflow-auto">
+                    <p class="color-999">Select a workflow to visualize its DAG</p>
                 </div>
             </div>
 
             <div class="executions-table">
-                <h3 style="margin-bottom: 20px; font-size: 1.2em; font-weight: 600; color: #333;">Workflow Executions</h3>
+                <h3 class="margin-bottom-20 font-size-12em font-weight-600 color-333">Workflow Executions</h3>
                 <table>
                     <thead>
                         <tr>
@@ -750,20 +811,20 @@
         <!-- SECURITY TAB (V7.0) -->
         <div id="security-tab" class="tab-content">
             <div class="controls">
-                <input type="file" id="codeFile" accept=".py,.js,.ts,.go,.java" title="Select code file" style="flex: 1;">
+                <input type="file" id="codeFile" accept=".py,.js,.ts,.go,.java" title="Select code file" class="flex-full">
                 <button onclick="analyzeCode()">🔍 Analyze Code</button>
                 <button onclick="scanDependencies()">📦 Scan Dependencies</button>
                 <button onclick="scanSecrets()">🔑 Scan Secrets</button>
             </div>
 
             <div class="findings-list">
-                <h3 style="margin-bottom: 20px; font-size: 1.2em; font-weight: 600; color: #333;">Security Findings</h3>
+                <h3 class="margin-bottom-20 font-size-12em font-weight-600 color-333">Security Findings</h3>
                 <div id="findingsContainer">
-                    <p style="color: #999; text-align: center; padding: 30px;">No findings yet. Run a scan to see results.</p>
+                    <p class="color-999 text-center padding-30">No findings yet. Run a scan to see results.</p>
                 </div>
             </div>
 
-            <div class="chart-container" style="height: 300px; margin-top: 20px;">
+            <div class="chart-container height-300 margin-top-20">
                 <h3 class="chart-title">Vulnerability Summary</h3>
                 <canvas id="vulnerabilityChart"></canvas>
             </div>
@@ -772,19 +833,19 @@
         <!-- TRACING TAB (V7.0) -->
         <div id="tracing-tab" class="tab-content">
             <div class="controls">
-                <input type="text" id="executionIdInput" placeholder="Execution ID" style="flex: 1;">
+                <input type="text" id="executionIdInput" placeholder="Execution ID" class="flex-full">
                 <button onclick="loadTraces()">📥 Load Traces</button>
                 <button onclick="exportTraces()">📤 Export Traces</button>
             </div>
 
             <div class="trace-timeline">
-                <h3 style="margin-bottom: 20px; font-size: 1.2em; font-weight: 600; color: #333;">Trace Timeline</h3>
+                <h3 class="margin-bottom-20 font-size-12em font-weight-600 color-333">Trace Timeline</h3>
                 <div id="traceContainer">
-                    <p style="color: #999; text-align: center; padding: 30px;">No traces loaded. Enter execution ID to load.</p>
+                    <p class="color-999 text-center padding-30">No traces loaded. Enter execution ID to load.</p>
                 </div>
             </div>
 
-            <div class="chart-container" style="height: 300px; margin-top: 20px;">
+            <div class="chart-container height-300 margin-top-20">
                 <h3 class="chart-title">Span Duration Distribution</h3>
                 <canvas id="spanDurationChart"></canvas>
             </div>
@@ -794,7 +855,7 @@
         <div id="costs-tab" class="tab-content">
             <div class="grid">
                 <div class="cost-breakdown">
-                    <h3 style="margin-bottom: 20px; font-size: 1.2em; font-weight: 600; color: #333;">Monthly Cost Summary</h3>
+                    <h3 class="margin-bottom-20 font-size-12em font-weight-600 color-333">Monthly Cost Summary</h3>
                     <div class="cost-total" id="monthlyCostTotal">$0.00</div>
                     <div class="cost-row">
                         <span class="cost-label">AWS Costs</span>
@@ -811,7 +872,7 @@
                 </div>
 
                 <div class="cost-breakdown">
-                    <h3 style="margin-bottom: 20px; font-size: 1.2em; font-weight: 600; color: #333;">Resource Breakdown</h3>
+                    <h3 class="margin-bottom-20 font-size-12em font-weight-600 color-333">Resource Breakdown</h3>
                     <div class="cost-row">
                         <span class="cost-label">Compute</span>
                         <span class="cost-value" id="computeCost">$0.00</span>
@@ -831,12 +892,12 @@
                 </div>
             </div>
 
-            <div class="chart-container" style="height: 300px;">
+            <div class="chart-container height-300">
                 <h3 class="chart-title">Cost Trends (Last 30 days)</h3>
                 <canvas id="costTrendChart"></canvas>
             </div>
 
-            <div class="chart-container" style="height: 300px; margin-top: 20px;">
+            <div class="chart-container height-300 margin-top-20">
                 <h3 class="chart-title">Cost Breakdown by Provider</h3>
                 <canvas id="costBreakdownChart"></canvas>
             </div>
