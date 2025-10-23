@@ -6589,9 +6589,21 @@ class ScriptRunner:
                         attempt=attempt
                     )
                     
-                    # Do not swallow fundamental file/permission errors
+                    # Do not retry fundamental file/permission errors; return failure result
                     if isinstance(e, (FileNotFoundError, PermissionError)):
-                        raise
+                        self.logger.error(f"Execution error (non-retryable): {e}")
+                        return {
+                            'stdout': '',
+                            'stderr': str(e),
+                            'returncode': -1,
+                            'success': False,
+                            'attempt_number': attempt,
+                            'metrics': {
+                                'error': str(e),
+                                'error_type': type(e).__name__,
+                                'attempt_number': attempt
+                            }
+                        }
                     
                     if should_retry:
                         delay = self.retry_config.get_delay(attempt - 1)
