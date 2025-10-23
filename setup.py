@@ -33,7 +33,7 @@ except ImportError:
 
 # Read version from runner.py
 with open(os.path.join(os.path.dirname(__file__), "runner.py")) as f:
-    version_match = re.search(r'__version__ = ["\']([^"\']*)["\'']', f.read())
+    version_match = re.search(r'__version__ = ["\']([^"\']*)["\']', f.read())
     version = version_match.group(1) if version_match else "7.0.1"
 
 # Read README for long description
