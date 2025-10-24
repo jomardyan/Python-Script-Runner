@@ -10,7 +10,7 @@ This package contains advanced runners and integrations:
 - workflows: DAG-based workflow orchestration
 """
 
-__version__ = "7.0.2"
+__version__ = "7.0.5"
 __author__ = "Python Script Runner Contributors"
 
 try:
