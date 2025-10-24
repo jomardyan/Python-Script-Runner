@@ -16,6 +16,7 @@ Features:
 
 import json
 import logging
+import os
 import time
 import threading
 import queue
@@ -112,7 +113,7 @@ class Task:
     """Workflow task definition."""
     id: str
     script: str
-    metadata: TaskMetadata = field(default_factory=TaskMetadata)
+    metadata: Optional[TaskMetadata] = None
     depends_on: List[str] = field(default_factory=list)
     skip_if: Optional[str] = None
     run_always: bool = False
@@ -128,6 +129,9 @@ class Task:
             raise ValueError("Task ID cannot be empty")
         if not self.script:
             raise ValueError(f"Task {self.id} script cannot be empty")
+        # Initialize default metadata if not provided
+        if self.metadata is None:
+            self.metadata = TaskMetadata(name=self.id)
 
     def expand_matrix(self) -> List["Task"]:
         """Expand matrix into multiple tasks."""
@@ -135,6 +139,8 @@ class Task:
             return [self]
 
         expanded = []
+        # Handle 'include' key specially - it adds extra configurations
+        include_configs = self.matrix.pop('include', [])
         matrix_vars = list(self.matrix.items())
 
         def generate_combinations(vars_list: List[Tuple], combo: Dict):
@@ -160,6 +166,22 @@ class Task:
                 del combo[var_name]
 
         generate_combinations(matrix_vars, {})
+        
+        # Add included configurations
+        for include_config in include_configs:
+            task_copy = Task(
+                id=f"{self.id}[{','.join(str(v) for v in include_config.values())}]",
+                script=self.script.format(**include_config),
+                metadata=self.metadata,
+                depends_on=self.depends_on,
+                skip_if=self.skip_if,
+                run_always=self.run_always,
+                env={**self.env, **include_config},
+                inputs=self.inputs,
+                outputs=self.outputs,
+            )
+            expanded.append(task_copy)
+        
         return expanded
 
 
@@ -173,10 +195,14 @@ class WorkflowDAG:
             name: Optional name for the DAG (for testing/tracking)
         """
         self.name = name or "default_dag"
+        self.id = kwargs.get('id', self.name)
         self.tasks: Dict[str, Task] = {}
         self.graph: Dict[str, Set[str]] = defaultdict(set)
         self.reverse_graph: Dict[str, Set[str]] = defaultdict(set)
         self.logger = logging.getLogger(__name__)
+        # Track execution state for get_ready_tasks without parameters
+        self.completed: Set[str] = set()
+        self.failed: Set[str] = set()
 
     def add_task(self, task: Task):
         """Add task to DAG."""
@@ -185,10 +211,8 @@ class WorkflowDAG:
 
         self.tasks[task.id] = task
 
-        # Build adjacency lists
+        # Build adjacency lists (defer validation to topological_sort)
         for dep in task.depends_on:
-            if dep not in self.tasks:
-                raise ValueError(f"Dependency {dep} not found for task {task.id}")
             self.graph[dep].add(task.id)
             self.reverse_graph[task.id].add(dep)
 
@@ -213,19 +237,40 @@ class WorkflowDAG:
                     queue_ts.append(neighbor)
 
         if len(sorted_list) != len(self.tasks):
-            raise ValueError("Cycle detected in task dependencies")
+            raise ValueError("cycle detected in task dependencies")
 
         return sorted_list
 
-    def get_ready_tasks(self, completed: Set[str], failed: Set[str]) -> List[str]:
-        """Get tasks ready for execution."""
+    def get_ready_tasks(self, completed: Set[str] = None, failed: Set[str] = None) -> List[Task]:
+        """Get tasks ready for execution.
+        
+        Args:
+            completed: Set of completed task IDs (defaults to self.completed)
+            failed: Set of failed task IDs (defaults to self.failed)
+            
+        Returns:
+            List of Task objects ready to execute
+        """
+        # Use instance state if not provided
+        if completed is None:
+            completed = self.completed.copy()
+        if failed is None:
+            failed = self.failed.copy()
+        
+        # Also mark tasks with COMPLETED status as completed
+        for task_id, task in self.tasks.items():
+            if hasattr(task, 'status') and task.status == TaskStatus.COMPLETED:
+                completed.add(task_id)
+            
         ready = []
         for task_id, dependencies in self.reverse_graph.items():
+            task = self.tasks[task_id]
+            # Skip if already completed/failed
             if task_id in completed or task_id in failed:
                 continue
             # All dependencies must be completed
             if dependencies.issubset(completed):
-                ready.append(task_id)
+                ready.append(task)
         return ready
 
     def get_levels(self) -> Dict[str, int]:
@@ -240,6 +285,34 @@ class WorkflowDAG:
                 levels[task_id] = max(levels[dep] for dep in self.reverse_graph[task_id]) + 1
 
         return levels
+
+    def validate(self) -> List[str]:
+        """Validate DAG consistency and dependencies.
+        
+        Returns:
+            List of validation errors (empty if valid)
+            
+        Raises:
+            ValueError: If validation errors are found
+        """
+        errors = []
+        
+        # Check for cycles
+        try:
+            self.topological_sort()
+        except ValueError as e:
+            errors.append(str(e))
+        
+        # Check dependencies exist
+        for task_id, task in self.tasks.items():
+            for dep in task.depends_on:
+                if dep not in self.tasks:
+                    errors.append(f"Task {task_id} depends on non-existent dependency {dep}")
+        
+        if errors:
+            raise ValueError("; ".join(errors))
+        
+        return errors
 
 
 class WorkflowExecutor:
@@ -261,17 +334,61 @@ class WorkflowExecutor:
         self.lock = threading.Lock()
 
     def _default_executor(self, task: Task, context: Dict[str, Any]) -> TaskResult:
-        """Default task executor (logging only)."""
+        """Default task executor (executes shell commands with timeout and retry)."""
+        import subprocess
+        
         self.logger.info(f"Executing task {task.id}: {task.script}")
-        time.sleep(0.1)
-        return TaskResult(
-            task_id=task.id,
-            status=TaskStatus.COMPLETED,
-            exit_code=0,
-            duration=0.1,
-            start_time=datetime.now(),
-            end_time=datetime.now(),
-        )
+        start_time = datetime.now()
+        
+        try:
+            timeout = task.metadata.timeout if task.metadata else 3600.0
+            # Run the actual subprocess command
+            process = subprocess.Popen(
+                task.script,
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env={**os.environ, **task.env} if hasattr(task, 'env') else None,
+            )
+            try:
+                stdout, stderr = process.communicate(timeout=timeout)
+                exit_code = process.returncode
+            except subprocess.TimeoutExpired:
+                process.kill()
+                return TaskResult(
+                    task_id=task.id,
+                    status=TaskStatus.FAILED,
+                    exit_code=-1,
+                    stderr=f"Task timed out after {timeout}s",
+                    duration=(datetime.now() - start_time).total_seconds(),
+                    start_time=start_time,
+                    end_time=datetime.now(),
+                    error=f"Task timed out after {timeout}s",
+                )
+            
+            end_time = datetime.now()
+            return TaskResult(
+                task_id=task.id,
+                status=TaskStatus.COMPLETED if exit_code == 0 else TaskStatus.FAILED,
+                exit_code=exit_code,
+                stdout=stdout.decode() if stdout else "",
+                stderr=stderr.decode() if stderr else "",
+                duration=(end_time - start_time).total_seconds(),
+                start_time=start_time,
+                end_time=end_time,
+            )
+        except Exception as e:
+            end_time = datetime.now()
+            return TaskResult(
+                task_id=task.id,
+                status=TaskStatus.FAILED,
+                exit_code=-1,
+                error=str(e),
+                stderr=str(e),
+                duration=(end_time - start_time).total_seconds(),
+                start_time=start_time,
+                end_time=end_time,
+            )
 
     def _should_skip(self, task: Task, context: Dict[str, Any]) -> bool:
         """Check if task should be skipped."""
@@ -334,6 +451,11 @@ class WorkflowExecutor:
         """
         if context is None:
             context = {}
+        
+        # Ensure task has metadata with retry policy
+        if not task.metadata:
+            task.metadata = TaskMetadata(name=task.id)
+        
         retry_policy = task.metadata.retry_policy
         last_result = None
 
@@ -431,12 +553,11 @@ class WorkflowExecutor:
             ready = dag.get_ready_tasks(completed, failed | skipped)
 
             # Start parallel execution
-            for task_id in ready:
-                if task_id in self.running_tasks or len(self.running_tasks) >= self.max_parallel:
+            for task in ready:
+                if task.id in self.running_tasks or len(self.running_tasks) >= self.max_parallel:
                     continue
 
-                task = dag.tasks[task_id]
-                self.running_tasks.add(task_id)
+                self.running_tasks.add(task.id)
 
                 def run_task(t: Task):
                     try:
@@ -457,7 +578,7 @@ class WorkflowExecutor:
 
                 thread = threading.Thread(target=run_task, args=(task,), daemon=False)
                 thread.start()
-                active_threads[task_id] = thread
+                active_threads[task.id] = thread
 
             # Wait a bit before checking again
             time.sleep(0.1)
@@ -488,12 +609,71 @@ class WorkflowEngine:
         self.db_path = db_path
         self.logger = logging.getLogger(__name__)
         self.workflows: Dict[str, Tuple[WorkflowDAG, Dict[str, TaskResult]]] = {}
+        self.next_workflow_id = 0
 
-    def create_workflow(self, workflow_id: str) -> WorkflowDAG:
+    def create_workflow(self, workflow_id: str = None) -> WorkflowDAG:
         """Create a new workflow."""
-        dag = WorkflowDAG()
+        if workflow_id is None:
+            workflow_id = f"workflow_{self.next_workflow_id}"
+            self.next_workflow_id += 1
+        dag = WorkflowDAG(name=workflow_id)
         self.workflows[workflow_id] = (dag, {})
         self.logger.info(f"Created workflow {workflow_id}")
+        return dag
+
+    def create_workflow_from_dict(self, workflow_dict: Dict[str, Any]) -> WorkflowDAG:
+        """Create workflow from dictionary configuration.
+        
+        Args:
+            workflow_dict: Dictionary with 'name' and 'tasks' keys
+                tasks format: [{'id': 'task1', 'script': 'echo hello', ...}, ...]
+        
+        Returns:
+            WorkflowDAG instance
+        """
+        workflow_name = workflow_dict.get('name', f'workflow_{self.next_workflow_id}')
+        dag = WorkflowDAG(name=workflow_name)
+        
+        # Add tasks to DAG
+        for task_dict in workflow_dict.get('tasks', []):
+            task_id = task_dict.get('id')
+            script = task_dict.get('script')
+            depends_on = task_dict.get('depends_on', [])
+            skip_if = task_dict.get('skip_if')
+            run_always = task_dict.get('run_always', False)
+            env = task_dict.get('env', {})
+            inputs = task_dict.get('inputs', {})
+            outputs = task_dict.get('outputs', [])
+            matrix = task_dict.get('matrix')
+            
+            # Create task metadata
+            metadata_dict = task_dict.get('metadata', {})
+            metadata = TaskMetadata(
+                name=metadata_dict.get('name', task_id),
+                description=metadata_dict.get('description', ''),
+                tags=metadata_dict.get('tags', []),
+                estimated_duration=metadata_dict.get('estimated_duration'),
+                timeout=metadata_dict.get('timeout', 3600.0),
+                priority=TaskPriority[metadata_dict.get('priority', 'NORMAL')],
+                retry_policy=RetryPolicy(**metadata_dict.get('retry_policy', {}))
+            )
+            
+            task = Task(
+                id=task_id,
+                script=script,
+                metadata=metadata,
+                depends_on=depends_on,
+                skip_if=skip_if,
+                run_always=run_always,
+                env=env,
+                inputs=inputs,
+                outputs=outputs,
+                matrix=matrix
+            )
+            dag.add_task(task)
+        
+        self.workflows[workflow_name] = (dag, {})
+        self.next_workflow_id += 1
         return dag
 
     def add_task(self, workflow_id: str, task: Task):
@@ -512,7 +692,7 @@ class WorkflowEngine:
 
     def run_workflow(
         self,
-        workflow_id: str,
+        workflow_id,
         task_executor: Optional[Callable] = None,
         context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, TaskResult]:
@@ -520,17 +700,24 @@ class WorkflowEngine:
         Execute a workflow.
 
         Args:
-            workflow_id: Workflow identifier
+            workflow_id: Workflow identifier (str) or WorkflowDAG object
             task_executor: Custom task executor function
             context: Execution context
 
         Returns:
             Dictionary of task results
         """
-        if workflow_id not in self.workflows:
+        # Handle both string IDs and WorkflowDAG objects
+        if isinstance(workflow_id, WorkflowDAG):
+            dag = workflow_id
+            workflow_id = dag.name
+            # Auto-register if not already registered
+            if workflow_id not in self.workflows:
+                self.workflows[workflow_id] = (dag, {})
+        elif workflow_id not in self.workflows:
             raise ValueError(f"Workflow {workflow_id} not found")
-
-        dag, _ = self.workflows[workflow_id]
+        else:
+            dag, _ = self.workflows[workflow_id]
 
         # Validate DAG
         try:
@@ -543,14 +730,35 @@ class WorkflowEngine:
         results = executor.execute_workflow(dag, context or {})
 
         self.workflows[workflow_id] = (dag, results)
-        return results
+        
+        # Check if all tasks succeeded
+        all_succeeded = all(r.status == TaskStatus.COMPLETED for r in results.values())
+        
+        return {
+            "success": all_succeeded,
+            "results": [
+                {**r.to_dict(), "success": r.status == TaskStatus.COMPLETED}
+                for r in results.values()
+            ],
+            "details": {tid: r.to_dict() for tid, r in results.items()},
+        }
 
-    def get_workflow_status(self, workflow_id: str) -> Dict[str, Any]:
+    def get_workflow_status(self, workflow_id) -> Dict[str, Any]:
         """Get workflow execution status."""
-        if workflow_id not in self.workflows:
+        # Handle both string IDs and WorkflowDAG objects
+        if isinstance(workflow_id, WorkflowDAG):
+            dag = workflow_id
+            workflow_id = dag.name
+        elif workflow_id not in self.workflows:
             raise ValueError(f"Workflow {workflow_id} not found")
+        else:
+            dag, results = self.workflows[workflow_id]
 
-        dag, results = self.workflows[workflow_id]
+        # If we have a DAG but not registered, get empty results
+        if workflow_id in self.workflows:
+            dag, results = self.workflows[workflow_id]
+        else:
+            results = {}
 
         completed = sum(1 for r in results.values() if r.status == TaskStatus.COMPLETED)
         failed = sum(1 for r in results.values() if r.status == TaskStatus.FAILED)
@@ -560,9 +768,9 @@ class WorkflowEngine:
         return {
             "workflow_id": workflow_id,
             "total_tasks": len(dag.tasks),
-            "completed": completed,
-            "failed": failed,
-            "skipped": skipped,
-            "pending": pending,
+            "completed_tasks": completed,
+            "failed_tasks": failed,
+            "skipped_tasks": skipped,
+            "pending_tasks": pending,
             "results": {tid: r.to_dict() for tid, r in results.items()},
         }

@@ -18,6 +18,7 @@ from .workflow_engine import (
     TaskPriority,
     RetryPolicy,
     WorkflowEngine,
+    WorkflowDAG,
 )
 
 try:
@@ -33,7 +34,7 @@ class WorkflowParser:
         """Initialize parser."""
         self.logger = logging.getLogger(__name__)
 
-    def parse_file(self, file_path: str) -> Dict[str, Any]:
+    def parse_file(self, file_path: str):
         """
         Parse workflow from file.
 
@@ -41,7 +42,7 @@ class WorkflowParser:
             file_path: Path to YAML or JSON file
 
         Returns:
-            Parsed workflow configuration
+            WorkflowDAG object representing the workflow
         """
         path = Path(file_path)
 
@@ -53,11 +54,14 @@ class WorkflowParser:
         if path.suffix.lower() in [".yaml", ".yml"]:
             if yaml is None:
                 raise ImportError("PyYAML is required for YAML parsing. Install with: pip install pyyaml")
-            return yaml.safe_load(content)
+            workflow_dict = yaml.safe_load(content)
         elif path.suffix.lower() == ".json":
-            return json.loads(content)
+            workflow_dict = json.loads(content)
         else:
             raise ValueError(f"Unsupported file format: {path.suffix}")
+        
+        # Build and return WorkflowDAG
+        return self._build_workflow_dag(workflow_dict)
 
     def parse_string(self, content: str, format: str = "yaml") -> Dict[str, Any]:
         """
@@ -225,3 +229,56 @@ class WorkflowParser:
                     )
 
         return errors
+
+    def _build_workflow_dag(self, workflow_config: Dict[str, Any]) -> WorkflowDAG:
+        """
+        Build WorkflowDAG from workflow configuration.
+
+        Args:
+            workflow_config: Parsed workflow configuration
+
+        Returns:
+            WorkflowDAG object
+        """
+        workflow_name = workflow_config.get("name", "workflow")
+        dag = WorkflowDAG(name=workflow_name)
+
+        # Add tasks to DAG
+        for task_config in workflow_config.get("tasks", []):
+            task_id = task_config.get("id")
+            script = task_config.get("script")
+            depends_on = task_config.get("depends_on", [])
+            skip_if = task_config.get("skip_if")
+            run_always = task_config.get("run_always", False)
+            env = task_config.get("env", {})
+            inputs = task_config.get("inputs", {})
+            outputs = task_config.get("outputs", [])
+            matrix = task_config.get("matrix")
+
+            # Create task metadata
+            metadata_config = task_config.get("metadata", {})
+            metadata = TaskMetadata(
+                name=metadata_config.get("name", task_id),
+                description=metadata_config.get("description", ""),
+                tags=metadata_config.get("tags", []),
+                estimated_duration=metadata_config.get("estimated_duration"),
+                timeout=metadata_config.get("timeout", 3600.0),
+                priority=TaskPriority[metadata_config.get("priority", "NORMAL").upper()],
+                retry_policy=RetryPolicy(**metadata_config.get("retry_policy", {}))
+            )
+
+            task = Task(
+                id=task_id,
+                script=script,
+                metadata=metadata,
+                depends_on=depends_on,
+                skip_if=skip_if,
+                run_always=run_always,
+                env=env,
+                inputs=inputs,
+                outputs=outputs,
+                matrix=matrix
+            )
+            dag.add_task(task)
+
+        return dag

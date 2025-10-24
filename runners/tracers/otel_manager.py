@@ -202,6 +202,8 @@ class TracingManager:
         exporter_config: Optional[ExporterConfig] = None,
         sampling_config: Optional[SamplingConfig] = None,
         enabled: bool = True,
+        exporter_type: str = None,
+        **kwargs
     ):
         """
         Initialize tracing manager.
@@ -210,9 +212,20 @@ class TracingManager:
             exporter_config: Exporter configuration
             sampling_config: Sampling configuration
             enabled: Enable tracing
+            exporter_type: Exporter type string ('jaeger', 'zipkin', 'otlp', 'NONE')
+            **kwargs: Additional parameters for compatibility
         """
         self.enabled = enabled and OTEL_AVAILABLE
         self.logger = logging.getLogger(__name__)
+        
+        # Handle exporter_type string parameter
+        if exporter_type is not None and exporter_config is None:
+            try:
+                exporter_enum = ExporterType(exporter_type.lower())
+            except (ValueError, AttributeError):
+                exporter_enum = ExporterType.NONE
+            exporter_config = ExporterConfig(type=exporter_enum)
+        
         self.exporter_config = exporter_config or ExporterConfig.from_env()
         self.sampling_config = sampling_config or SamplingConfig.from_env()
         self.tracer_provider: Optional[TracerProvider] = None
