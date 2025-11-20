@@ -34,7 +34,7 @@ except ImportError:
 # Read version from runner.py
 with open(os.path.join(os.path.dirname(__file__), "runner.py")) as f:
     version_match = re.search(r'__version__ = ["\']([^"\']*)["\']', f.read())
-    version = version_match.group(1) if version_match else "7.0.7"
+    version = version_match.group(1) if version_match else "7.1.0"
 
 # Read README for long description
 readme_file = os.path.join(os.path.dirname(__file__), "README.md")
