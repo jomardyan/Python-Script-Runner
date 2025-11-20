@@ -7,7 +7,7 @@
 # 4. Runs setup.py with the chosen option
 # 5. Keeps the virtual environment activated in the terminal
 #
-# Usage:
+# Usage:::
 #   .\setup.ps1
 #   OR (to bypass execution policy if needed)
 #   powershell -ExecutionPolicy Bypass -File .\setup.ps1
