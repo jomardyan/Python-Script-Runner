@@ -8,10 +8,12 @@ it can be deployed like a serverless function.
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import os
 import shutil
 import sqlite3
+import subprocess
 import sys
 import threading
 import uuid
@@ -203,27 +205,84 @@ def _execute_run(run_id: str, payload: RunRequest, cancel_event: threading.Event
         )
     RUN_STORE.upsert(RUNS[run_id])
 
+    json_output_path = UPLOAD_DIR / f"{run_id}_metrics.json.gz"
+
     try:
-        runner = ScriptRunner(
-            payload.script_path,
-            script_args=payload.args,
-            timeout=payload.timeout,
-            log_level=payload.log_level,
-            history_db=payload.history_db,
-            enable_history=payload.enable_history,
-        )
-        RUN_HANDLES[run_id]["runner"] = runner
+        # Build command to run runner.py
+        cmd = [sys.executable, str(PROJECT_ROOT / "runner.py")]
+        
+        if payload.timeout:
+            cmd.extend(["--timeout", str(payload.timeout)])
+        
+        cmd.extend(["--log-level", payload.log_level])
+        
+        if payload.history_db:
+            cmd.extend(["--history-db", payload.history_db])
+            
+        if not payload.enable_history:
+            cmd.append("--disable-history")
+            
+        if payload.retry_on_failure:
+            cmd.extend(["--retry", "3"])
+
+        # Use JSON output to capture metrics
+        cmd.extend(["--json-output", str(json_output_path)])
+
+        # Script and args
+        cmd.append(payload.script_path)
+        cmd.extend(payload.args)
 
         if cancel_event.is_set():
             raise RuntimeError("Run cancelled before start")
 
-        result = runner.run_script(retry_on_failure=payload.retry_on_failure)
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=PROJECT_ROOT
+        )
+        
+        RUN_HANDLES[run_id]["process"] = process
+
+        # Wait for completion or cancellation
+        while process.poll() is None:
+            if cancel_event.is_set():
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                raise RuntimeError("Run cancelled by user")
+            threading.Event().wait(0.1) # Sleep briefly
+
+        stdout, stderr = process.communicate()
+        returncode = process.returncode
+
+        # Read metrics from JSON output
+        metrics = {}
+        if json_output_path.exists():
+            try:
+                with gzip.open(json_output_path, 'rt') as f:
+                    metrics = json.load(f)
+                json_output_path.unlink()
+            except Exception as e:
+                print(f"Failed to read metrics: {e}")
+
+        result = {
+            "returncode": returncode,
+            "stdout": stdout,
+            "stderr": stderr,
+            "metrics": metrics
+        }
+
         if cancel_event.is_set():
             status = "cancelled"
             error = "Run cancelled by user"
         else:
-            status = "completed" if result.get("returncode", 1) == 0 else "failed"
+            status = "completed" if returncode == 0 else "failed"
             error = None
+            
         finished_at = datetime.utcnow()
         record = RunRecord(
             id=run_id,
@@ -253,6 +312,11 @@ def _execute_run(run_id: str, payload: RunRequest, cancel_event: threading.Event
         RUN_STORE.upsert(record)
     finally:
         RUN_HANDLES.pop(run_id, None)
+        if json_output_path.exists():
+            try:
+                json_output_path.unlink()
+            except:
+                pass
 
 
 def _validate_script_path(path_str: str) -> Path:
@@ -291,7 +355,7 @@ def _queue_run(payload: RunRequest, background_tasks: BackgroundTasks) -> Dict[s
     cancel_event = threading.Event()
     with RUNS_LOCK:
         RUNS[run_id] = record
-    RUN_HANDLES[run_id] = {"cancel_event": cancel_event, "runner": None}
+    RUN_HANDLES[run_id] = {"cancel_event": cancel_event, "process": None}
     RUN_STORE.upsert(record)
 
     background_tasks.add_task(_execute_run, run_id, payload, cancel_event)
@@ -380,9 +444,9 @@ def cancel_run(run_id: str) -> Dict[str, str]:
         raise HTTPException(status_code=409, detail="Run already finished")
     if handle:
         handle["cancel_event"].set()
-        runner = handle.get("runner")
-        if runner:
-            runner.cancel_active_run()
+        process = handle.get("process")
+        if process:
+            process.terminate()
     finished_at = datetime.utcnow()
     updated = RunRecord(
         id=record.id,

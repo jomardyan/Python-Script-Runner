@@ -13,5 +13,10 @@ if ! command -v uvicorn >/dev/null 2>&1; then
   exit 1
 fi
 
+# Kill existing process on the port if any
+if command -v fuser >/dev/null 2>&1; then
+  fuser -k "${PORT}/tcp" >/dev/null 2>&1 || true
+fi
+
 echo "Starting Script Runner WEBAPI at ${HOST}:${PORT} (dashboard available at http://${HOST}:${PORT})"
 exec uvicorn WEBAPI.api:app --host "$HOST" --port "$PORT"
