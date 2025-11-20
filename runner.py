@@ -35,6 +35,7 @@ import argparse
 import time
 import json
 import os
+import stat
 import logging
 import traceback
 import smtplib
@@ -6627,7 +6628,10 @@ class ScriptRunner:
         """
         if not os.path.isfile(self.script_path):
             raise FileNotFoundError(f"Script not found: {self.script_path}")
-        if not os.access(self.script_path, os.R_OK):
+
+        mode = os.stat(self.script_path).st_mode
+        readable = bool(mode & (stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH))
+        if not readable:
             raise PermissionError(f"Script not readable: {self.script_path}")
         if not self.script_path.endswith('.py'):
             self.logger.warning(f"Script does not have .py extension: {self.script_path}")
@@ -6752,18 +6756,7 @@ class ScriptRunner:
                     # Do not retry fundamental file/permission errors; return failure result
                     if isinstance(e, (FileNotFoundError, PermissionError)):
                         self.logger.error(f"Execution error (non-retryable): {e}")
-                        return {
-                            'stdout': '',
-                            'stderr': str(e),
-                            'returncode': -1,
-                            'success': False,
-                            'attempt_number': attempt,
-                            'metrics': {
-                                'error': str(e),
-                                'error_type': type(e).__name__,
-                                'attempt_number': attempt
-                            }
-                        }
+                        raise
                     
                     if should_retry:
                         delay = self.retry_config.get_delay(attempt - 1)

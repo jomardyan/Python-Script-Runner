@@ -46,6 +46,13 @@ class Vulnerability:
     cwe: Optional[str] = None
     scanner: str = "safety"
 
+    def __post_init__(self):
+        if isinstance(self.severity, str):
+            try:
+                self.severity = VulnerabilitySeverity(self.severity.lower())
+            except Exception:
+                self.severity = VulnerabilitySeverity.LOW
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return {
@@ -146,30 +153,53 @@ class SafetyScanner:
             ScanResult with vulnerabilities
         """
         try:
-            result = subprocess.run(
+            process = subprocess.Popen(
                 ["safety", "check", "--file", requirements_file, "--json"],
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=30,
             )
+            stdout, stderr = process.communicate()
 
             # Safety returns 0 if no vulnerabilities, >0 if found
-            if result.returncode not in [0, 1]:
+            if process.returncode not in [0, 1]:
                 return ScanResult(
                     success=False,
                     vulnerabilities=[],
                     dependencies=[],
-                    errors=[result.stderr],
+                    errors=[stderr],
                 )
 
             # Parse JSON output
-            data = json.loads(result.stdout) if result.stdout else {}
+            data = json.loads(stdout) if stdout else {}
             vulnerabilities = []
 
             # Safety format: list of [package_name, installed_version, vuln_id, description, fixed_version, cve_list]
             if isinstance(data, list):
                 for vuln in data:
-                    if len(vuln) >= 4:
+                    if isinstance(vuln, dict):
+                        description = vuln.get('advisory', '')
+                        severity = self._parse_severity([
+                            vuln.get('package_name', ''),
+                            vuln.get('package_version', ''),
+                            vuln.get('vulnerability', ''),
+                            description,
+                            vuln.get('fixed_version'),
+                        ])
+                        vulnerabilities.append(
+                            Vulnerability(
+                                id=f"safety-{vuln.get('vulnerability', '')}",
+                                package_name=vuln.get('package_name', ''),
+                                package_version=vuln.get('package_version', ''),
+                                vulnerability_id=vuln.get('vulnerability', ''),
+                                title=description[:100] if description else "Unknown",
+                                description=description,
+                                severity=severity,
+                                fixed_version=vuln.get('fixed_version'),
+                                scanner="safety",
+                            )
+                        )
+                    elif len(vuln) >= 4:
                         severity = self._parse_severity(vuln)
                         vulnerability = Vulnerability(
                             id=f"safety-{vuln[2]}",
@@ -248,23 +278,24 @@ class OSVScanner:
             ScanResult with vulnerabilities
         """
         try:
-            result = subprocess.run(
+            process = subprocess.Popen(
                 ["osv-scanner", "--lockfile", requirements_file, "--json"],
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=30,
             )
+            stdout, stderr = process.communicate()
 
-            if result.returncode not in [0, 1]:
+            if process.returncode not in [0, 1]:
                 return ScanResult(
                     success=False,
                     vulnerabilities=[],
                     dependencies=[],
-                    errors=[result.stderr],
+                    errors=[stderr],
                 )
 
             # Parse JSON output
-            data = json.loads(result.stdout) if result.stdout else {}
+            data = json.loads(stdout) if stdout else {}
             vulnerabilities = []
 
             # OSV format: {"results": [{"packages": [...], "vulnerabilities": [...]}]}

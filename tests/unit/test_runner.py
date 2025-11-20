@@ -140,10 +140,9 @@ class TestScriptExecution:
     def test_script_not_found(self):
         """Test executing non-existent script"""
         runner = ScriptRunner('/non/existent/script.py')
-        
-        # Should handle gracefully
-        result = runner.run_script()
-        assert result['success'] is False or result['returncode'] != 0
+
+        with pytest.raises(FileNotFoundError):
+            runner.run_script()
 
 
 class TestMetricsCollection:

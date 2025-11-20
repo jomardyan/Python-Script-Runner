@@ -180,22 +180,23 @@ class BanditAnalyzer:
             AnalysisResult with findings
         """
         try:
-            result = subprocess.run(
+            process = subprocess.Popen(
                 ["bandit", "-f", "json", file_path],
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=30,
             )
+            stdout, stderr = process.communicate()
 
-            if result.returncode not in [0, 1]:
+            if process.returncode not in [0, 1]:
                 return AnalysisResult(
                     success=False,
                     findings=[],
-                    errors=[result.stderr],
+                    errors=[stderr],
                 )
 
             # Parse JSON output
-            data = json.loads(result.stdout)
+            data = json.loads(stdout)
             findings = []
 
             for issue in data.get("results", []):
@@ -276,23 +277,24 @@ class SemgrepAnalyzer:
             AnalysisResult with findings
         """
         try:
-            result = subprocess.run(
+            process = subprocess.Popen(
                 ["semgrep", "--json", "--config", self.rules, file_path],
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=30,
             )
+            stdout, stderr = process.communicate()
 
             # Semgrep returns 0 if no findings, >0 if findings
-            if result.returncode not in [0, 1]:
+            if process.returncode not in [0, 1]:
                 return AnalysisResult(
                     success=False,
                     findings=[],
-                    errors=[result.stderr],
+                    errors=[stderr],
                 )
 
             # Parse JSON output
-            data = json.loads(result.stdout)
+            data = json.loads(stdout)
             findings = []
 
             for result_item in data.get("results", []):

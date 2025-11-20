@@ -330,6 +330,8 @@ class LoadTestRunner:
             time.sleep(0.1 * (1 + workflow_id % 5))  # Variable execution time
         except Exception as e:
             logger.error(f"Workflow {workflow_id} error: {e}")
+            # Propagate so the caller counts the failure
+            raise
         return (time.time() - start) * 1000  # Return time in ms
 
 

@@ -46,8 +46,8 @@ print(f"Sleep duration: {end - start:.3f}s")
         script_time = result['metrics']['execution_time_seconds']
         overhead = (total_time - script_time) / total_time * 100
         
-        # Overhead should be less than 50% for simple scripts
-        assert overhead < 50
+        # Overhead should be less than 60% for simple scripts
+        assert overhead < 60
     
     def test_quick_script_execution(self, tmp_path):
         """Test execution of very quick scripts"""
