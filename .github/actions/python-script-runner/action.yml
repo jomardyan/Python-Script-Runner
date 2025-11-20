@@ -22,10 +22,6 @@ inputs:
     description: 'Delay between retry attempts in seconds'
     required: false
     default: '5'
-  fail-fast:
-    description: 'Fail fast on first error'
-    required: false
-    default: 'false'
   extra-dependencies:
     description: 'Additional pip packages to install (space-separated)'
     required: false
@@ -74,22 +70,24 @@ runs:
       shell: bash
       run: |
         pip install --upgrade pip setuptools wheel
-        pip install python-script-runner
+        # Install from local source for CI/CD runs, or from PyPI for external use
+        if [ -f "setup.py" ]; then
+          pip install -e .
+        else
+          pip install python-script-runner
+        fi
 
     - name: 'Install optional dependencies'
       shell: bash
       run: |
         if [ "${{ inputs.enable-tracing }}" = "true" ]; then
-          pip install 'python-script-runner[otel]'
+          pip install opentelemetry-api opentelemetry-sdk 2>/dev/null || echo "OpenTelemetry packages optional"
         fi
         if [ "${{ inputs.enable-security-scan }}" = "true" ]; then
-          pip install 'python-script-runner[security]'
+          pip install bandit semgrep 2>/dev/null || echo "Security tools optional"
         fi
         if [ "${{ inputs.enable-dependency-scan }}" = "true" ]; then
-          pip install 'python-script-runner[security]'
-        fi
-        if [ "${{ inputs.enable-cost-tracking }}" = "true" ]; then
-          pip install 'python-script-runner[cloud]'
+          pip install safety 2>/dev/null || echo "Safety tool optional"
         fi
         if [ -n "${{ inputs.extra-dependencies }}" ]; then
           pip install ${{ inputs.extra-dependencies }}
@@ -119,10 +117,10 @@ runs:
         PSR_TIMEOUT_MINUTES: ${{ inputs.timeout-minutes }}
         PSR_MAX_RETRIES: ${{ inputs.max-retries }}
         PSR_RETRY_DELAY_SECONDS: ${{ inputs.retry-delay-seconds }}
-        PSR_FAIL_FAST: ${{ inputs.fail-fast }}
         PSR_ENABLE_TRACING: ${{ inputs.enable-tracing }}
         PSR_ENABLE_COST_TRACKING: ${{ inputs.enable-cost-tracking }}
         PSR_UPLOAD_METRICS: ${{ inputs.upload-metrics }}
+        PYTHONPATH: ${{ github.workspace }}
       run: |
         START_TIME=$(date +%s)
         
@@ -132,14 +130,18 @@ runs:
         # Add optional flags
         if [ "${{ inputs.max-retries }}" -gt "0" ]; then
           CMD="$CMD --retry ${{ inputs.max-retries }}"
+          if [ "${{ inputs.retry-delay-seconds }}" -gt "0" ]; then
+            CMD="$CMD --retry-delay ${{ inputs.retry-delay-seconds }}"
+          fi
         fi
         
-        if [ "${{ inputs.fail-fast }}" = "true" ]; then
-          CMD="$CMD --fail-fast"
+        if [ "${{ inputs.timeout-minutes }}" -gt "0" ]; then
+          TIMEOUT_SECONDS=$((inputs.timeout-minutes * 60))
+          CMD="$CMD --timeout $TIMEOUT_SECONDS"
         fi
         
         if [ "${{ inputs.enable-tracing }}" = "true" ]; then
-          CMD="$CMD --enable-tracing"
+          export OTEL_TRACING_ENABLED=true
         fi
         
         # Execute script

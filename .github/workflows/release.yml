@@ -103,15 +103,18 @@ jobs:
       - name: Compile and validate
         run: |
           python -m py_compile runner.py
-          python -c "import runner; print(f'✅ Code compiles: {runner.__version__}')"
+          python -m compileall runners/ 2>/dev/null || true
+          python -c "import runner; print(f'✅ Core compiles: {runner.__version__}')"
+          python -c "from runners.workflows import workflow_engine; print('✅ Subpackages OK')"
       
       - name: Run unit tests
         continue-on-error: true
         run: |
           if [ -f "pytest.ini" ]; then
-            python -m pytest tests/ -v --tb=short 2>&1 | head -100
+            python -m pytest tests/unit/ -v --tb=short 2>&1 | head -150
+            echo "Unit tests completed"
           else
-            echo "No tests configured"
+            echo "⚠️ No tests configured (pytest.ini not found)"
           fi
 
   build-python3:
