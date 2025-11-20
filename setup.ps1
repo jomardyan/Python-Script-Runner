@@ -425,14 +425,14 @@ catch {
 if ($SETUP_COMMAND -eq "develop") {
     Write-Section "✓ Development installation completed!"
     Write-Host "You can now run the script runner:"
-    Write-Host "  python-script-runner test_script.py"
-    Write-Host "  python -m runner test_script.py"
+    Write-Host "  python-script-runner examples/sample_script.py"
+    Write-Host "  python -m runner examples/sample_script.py"
     Write-Host ""
 }
 elseif ($SETUP_COMMAND -eq "install") {
     Write-Section "✓ Installation completed!"
     Write-Host "You can now run the script runner:"
-    Write-Host "  python-script-runner test_script.py"
+    Write-Host "  python-script-runner examples/sample_script.py"
     Write-Host ""
 }
 elseif ($SETUP_COMMAND -eq "py2exe") {
@@ -442,7 +442,7 @@ elseif ($SETUP_COMMAND -eq "py2exe") {
         Write-Host "  dist\python-script-runner.exe"
         Write-Host ""
         Write-Host "To test the executable, run:"
-        Write-Host "  .\dist\python-script-runner.exe test_script.py"
+        Write-Host "  .\dist\python-script-runner.exe examples/sample_script.py"
         Write-Host ""
         Write-Host "You can distribute this executable to other Windows machines"
         Write-Host "without requiring Python installation."
@@ -472,8 +472,8 @@ Write-Success "Virtual environment is ACTIVE"
 Write-Host ""
 Write-Host "The virtual environment will remain active in this PowerShell session."
 Write-Host "You can now run commands like:"
-Write-Host "  python-script-runner test_script.py"
-Write-Host "  python -m runner test_script.py"
+Write-Host "  python-script-runner examples/sample_script.py"
+Write-Host "  python -m runner examples/sample_script.py"
 Write-Host ""
 Write-Host "To deactivate the virtual environment, type: deactivate"
 Write-Host ""

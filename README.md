@@ -158,6 +158,47 @@ print(f"Start Time: {result['metrics']['start_time']}")
 print(f"Exit Code: {result['exit_code']}")
 print(f"Success: {result['metrics']['success']}")
 ```
+
+## ⏱️ Task Scheduling & Automation
+
+Python Script Runner ships with a lightweight scheduler to automate recurring or event-driven jobs without standing up extra infrastructure. The scheduler includes:
+
+- **Automation & recurrence**: Define hourly, daily, weekly, or custom interval schedules (`every_5min`, `every_30min`) or supply a cron expression for more complex windows.
+- **Dependency-aware execution**: Chain tasks together so downstream jobs only start after upstream tasks complete successfully.
+- **Error handling & visibility**: Execution results are captured in-memory with status, error messages, and next-run timestamps for quick troubleshooting.
+- **Event triggers**: Bind tasks to custom events (for example, `on_script_failure`) and trigger them manually via the CLI.
+
+Basic usage:
+
+```python
+from runner import TaskScheduler
+
+scheduler = TaskScheduler()
+
+# Schedule a daily report and a dependent distribution step
+scheduler.add_scheduled_task("generate_report", "reports/daily.py", schedule="daily")
+scheduler.add_scheduled_task(
+    "distribute_report",
+    "reports/distribute.py",
+    dependencies=["generate_report"],
+)
+
+# Run any tasks that are due (e.g., inside a cron shell)
+for result in scheduler.run_due_tasks():
+    print(result)
+```
+
+You can also interact via the CLI:
+
+```bash
+python -m runner \
+  --add-scheduled-task nightly_cleanup \
+  --script scripts/cleanup.py \
+  --schedule daily \
+  --list-scheduled-tasks
+```
+
+The scheduler respects dependency ordering automatically; if a prerequisite task fails, dependent tasks are skipped until the next eligible run.
 **Benefit**: SQLite database provides immutable audit trail for SOC2/HIPAA compliance. Every execution logged with full context.
 
 ---
@@ -185,6 +226,8 @@ python -m runner script.py --slack-webhook "YOUR_WEBHOOK_URL"
 # As CLI command
 python-script-runner myscript.py
 ```
+
+> Need a quick smoke test? Run the bundled sample script with `python -m runner examples/sample_script.py` to see the default metrics output without creating your own file first.
 
 ### 📊 Default Output - Comprehensive Metrics Report
 
