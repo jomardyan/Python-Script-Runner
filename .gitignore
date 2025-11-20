@@ -168,6 +168,11 @@ test_output/
 test_results/
 coverage_report/
 
+# Web API uploads and data
+WEBAPI/uploads/
+WEBAPI/db/
+WEBAPI/runs.db
+
 # Performance profiling
 *.prof
 *.pstats

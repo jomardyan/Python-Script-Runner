@@ -14,7 +14,7 @@ Supports:
     - python setup.py py2app (create macOS app bundle)
 """
 
-from setuptools import setup
+from setuptools import setup, find_packages
 import os
 import re
 import sys
@@ -81,6 +81,7 @@ setup(
         "Bug Tracker": "https://github.com/jomardyan/Python-Script-Runner/issues",
     },
     py_modules=["runner", "__main__"],
+    packages=find_packages(),
     python_requires=">=3.6",
     install_requires=[
         "psutil>=5.9.0",

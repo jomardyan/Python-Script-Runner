@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  script-runner:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "9000:9000"
+    volumes:
+      # Persist uploads and database
+      - script_runner_data:/app/WEBAPI/uploads
+      - script_runner_db:/app/WEBAPI/db
+    environment:
+      - WEBAPI_RUN_DB=/app/WEBAPI/db/runs.db
+    restart: unless-stopped
+
+volumes:
+  script_runner_data:
+  script_runner_db:

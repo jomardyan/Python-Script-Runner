@@ -21,7 +21,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, UploadFile, File, Form
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, UploadFile, File, Form, Body
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -51,6 +51,9 @@ class RunRequest(BaseModel):
     )
     enable_history: bool = Field(
         True, description="Persist run metrics to the configured SQLite database"
+    )
+    env_vars: Dict[str, str] = Field(
+        default_factory=dict, description="Environment variables to set for the execution"
     )
 
 
@@ -171,6 +174,30 @@ class RunStore:
             return None
         return {"stdout": row["stdout"], "stderr": row["stderr"]}
 
+    def delete(self, run_id: str) -> bool:
+        with self._lock, self._connect() as conn:
+            cursor = conn.execute("DELETE FROM runs WHERE id = ?", (run_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def get_stats(self) -> Dict[str, Any]:
+        with self._connect() as conn:
+            total = conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+            by_status = dict(conn.execute("SELECT status, COUNT(*) FROM runs GROUP BY status").fetchall())
+            
+            # Last 24h
+            yesterday = (datetime.utcnow().timestamp() - 86400)
+            # SQLite stores dates as strings, so we need to be careful. 
+            # Assuming ISO format YYYY-MM-DD... which sorts correctly as string.
+            yesterday_iso = datetime.fromtimestamp(yesterday).isoformat()
+            last_24h = conn.execute("SELECT COUNT(*) FROM runs WHERE started_at > ?", (yesterday_iso,)).fetchone()[0]
+            
+        return {
+            "total_runs": total,
+            "by_status": by_status,
+            "runs_24h": last_24h
+        }
+
 
 app = FastAPI(title="Script Runner Web API", version="1.1.0")
 
@@ -191,6 +218,79 @@ def health() -> Dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/api/system/status")
+def system_status() -> Dict[str, Any]:
+    """Return system resource usage."""
+    status = {"cpu_load": [0.0, 0.0, 0.0], "memory": {"total": 0, "available": 0}}
+    
+    # CPU Load
+    if hasattr(os, "getloadavg"):
+        status["cpu_load"] = list(os.getloadavg())
+    
+    # Memory (Linux only)
+    if Path("/proc/meminfo").exists():
+        try:
+            mem_info = {}
+            with open("/proc/meminfo", "r") as f:
+                for line in f:
+                    parts = line.split(":")
+                    if len(parts) == 2:
+                        key = parts[0].strip()
+                        val = parts[1].strip().split()[0] # kB
+                        mem_info[key] = int(val) * 1024 # bytes
+            
+            if "MemTotal" in mem_info and "MemAvailable" in mem_info:
+                status["memory"] = {
+                    "total": mem_info["MemTotal"],
+                    "available": mem_info["MemAvailable"],
+                    "percent": round((1 - mem_info["MemAvailable"] / mem_info["MemTotal"]) * 100, 1)
+                }
+        except Exception:
+            pass
+            
+    return status
+
+
+@app.get("/api/stats")
+def get_stats() -> Dict[str, Any]:
+    """Return aggregated run statistics."""
+    return RUN_STORE.get_stats()
+
+
+@app.delete("/api/runs/{run_id}")
+def delete_run(run_id: str) -> Dict[str, bool]:
+    """Delete a specific run record."""
+    with RUNS_LOCK:
+        if run_id in RUNS:
+            # If running, don't delete
+            if RUNS[run_id].status in ("queued", "running"):
+                 raise HTTPException(status_code=400, detail="Cannot delete active run")
+            del RUNS[run_id]
+            
+    success = RUN_STORE.delete(run_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return {"success": True}
+
+
+@app.delete("/api/runs")
+def delete_runs(run_ids: List[str] = Body(...)) -> Dict[str, int]:
+    """Bulk delete run records."""
+    count = 0
+    for run_id in run_ids:
+        try:
+            with RUNS_LOCK:
+                if run_id in RUNS:
+                    if RUNS[run_id].status in ("queued", "running"):
+                        continue
+                    del RUNS[run_id]
+            if RUN_STORE.delete(run_id):
+                count += 1
+        except:
+            pass
+    return {"deleted": count}
+
+
 def _execute_run(run_id: str, payload: RunRequest, cancel_event: threading.Event) -> None:
     """Worker that executes the script and updates the run registry."""
 
@@ -206,10 +306,12 @@ def _execute_run(run_id: str, payload: RunRequest, cancel_event: threading.Event
     RUN_STORE.upsert(RUNS[run_id])
 
     json_output_path = UPLOAD_DIR / f"{run_id}_metrics.json.gz"
+    stdout_path = UPLOAD_DIR / f"{run_id}.stdout"
+    stderr_path = UPLOAD_DIR / f"{run_id}.stderr"
 
     try:
         # Build command to run runner.py
-        cmd = [sys.executable, str(PROJECT_ROOT / "runner.py")]
+        cmd = [sys.executable, "-u", str(PROJECT_ROOT / "runner.py")]
         
         if payload.timeout:
             cmd.extend(["--timeout", str(payload.timeout)])
@@ -235,28 +337,40 @@ def _execute_run(run_id: str, payload: RunRequest, cancel_event: threading.Event
         if cancel_event.is_set():
             raise RuntimeError("Run cancelled before start")
 
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            cwd=PROJECT_ROOT
-        )
-        
-        RUN_HANDLES[run_id]["process"] = process
+        # Prepare environment
+        run_env = os.environ.copy()
+        run_env.update(payload.env_vars)
 
-        # Wait for completion or cancellation
-        while process.poll() is None:
-            if cancel_event.is_set():
-                process.terminate()
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                raise RuntimeError("Run cancelled by user")
-            threading.Event().wait(0.1) # Sleep briefly
+        with open(stdout_path, "w") as f_out, open(stderr_path, "w") as f_err:
+            process = subprocess.Popen(
+                cmd,
+                stdout=f_out,
+                stderr=f_err,
+                text=True,
+                cwd=PROJECT_ROOT,
+                env=run_env
+            )
+            
+            RUN_HANDLES[run_id]["process"] = process
 
-        stdout, stderr = process.communicate()
+            # Wait for completion or cancellation
+            while process.poll() is None:
+                if cancel_event.is_set():
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                    raise RuntimeError("Run cancelled by user")
+                threading.Event().wait(0.1) # Sleep briefly
+
+        stdout = ""
+        stderr = ""
+        if stdout_path.exists():
+            stdout = stdout_path.read_text(errors="replace")
+        if stderr_path.exists():
+            stderr = stderr_path.read_text(errors="replace")
+
         returncode = process.returncode
 
         # Read metrics from JSON output
@@ -312,11 +426,12 @@ def _execute_run(run_id: str, payload: RunRequest, cancel_event: threading.Event
         RUN_STORE.upsert(record)
     finally:
         RUN_HANDLES.pop(run_id, None)
-        if json_output_path.exists():
-            try:
-                json_output_path.unlink()
-            except:
-                pass
+        for p in [json_output_path, stdout_path, stderr_path]:
+            if p.exists():
+                try:
+                    p.unlink()
+                except:
+                    pass
 
 
 def _validate_script_path(path_str: str) -> Path:
@@ -378,6 +493,7 @@ def trigger_run_upload(
     timeout: Optional[int] = Form(None),
     log_level: str = Form("INFO"),
     retry_on_failure: bool = Form(False),
+    env_vars: str = Form("{}"),
 ) -> Dict[str, str]:
     """Upload a script and queue execution."""
     if not file.filename.endswith(('.py', '.pyw')):
@@ -395,12 +511,18 @@ def trigger_run_upload(
     # Parse args (comma separated string)
     arg_list = [a.strip() for a in args.split(',') if a.strip()]
 
+    try:
+        env_vars_dict = json.loads(env_vars)
+    except json.JSONDecodeError:
+        env_vars_dict = {}
+
     payload = RunRequest(
         script_path=str(file_path.resolve()),
         args=arg_list,
         timeout=timeout,
         log_level=log_level,
-        retry_on_failure=retry_on_failure
+        retry_on_failure=retry_on_failure,
+        env_vars=env_vars_dict
     )
 
     payload = _validate_payload(payload)
@@ -465,13 +587,28 @@ def cancel_run(run_id: str) -> Dict[str, str]:
 
 @app.get("/api/runs/{run_id}/logs")
 def get_run_logs(run_id: str) -> StreamingResponse:
+    # Check for live log files first
+    stdout_path = UPLOAD_DIR / f"{run_id}.stdout"
+    stderr_path = UPLOAD_DIR / f"{run_id}.stderr"
+    
+    if stdout_path.exists() or stderr_path.exists():
+        def stream_live() -> Any:
+            if stdout_path.exists():
+                yield stdout_path.read_text(errors="replace")
+            if stderr_path.exists():
+                err = stderr_path.read_text(errors="replace")
+                if err:
+                    yield "\n--- STDERR ---\n" + err
+        return StreamingResponse(stream_live(), media_type="text/plain")
+
     logs = RUN_STORE.get_logs(run_id)
     if logs is None:
         raise HTTPException(status_code=404, detail="Run not found")
 
     def stream() -> Any:
         yield logs.get("stdout") or ""
-        yield "\n" + (logs.get("stderr") or "")
+        if logs.get("stderr"):
+            yield "\n--- STDERR ---\n" + logs.get("stderr")
 
     return StreamingResponse(stream(), media_type="text/plain")
 

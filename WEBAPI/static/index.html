@@ -238,6 +238,18 @@
         .status-failed { background: var(--danger-bg); color: var(--danger-text); }
         .status-cancelled { background: var(--bg-color); color: var(--text-muted); border: 1px solid var(--border-color); }
 
+        .script-path {
+            max-width: 300px;
+            word-break: break-all;
+        }
+
+        .args-cell {
+            max-width: 200px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
         .code-pill {
             font-family: monospace;
             background: var(--bg-color);
@@ -327,6 +339,81 @@
         .toast.success { border-color: var(--success); }
         .toast.error { border-color: var(--danger); }
 
+        /* New Styles */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: var(--card-bg);
+            padding: 1.25rem;
+            border-radius: var(--radius);
+            border: 1px solid var(--border-color);
+            box-shadow: var(--shadow-sm);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--text-main);
+            margin-bottom: 0.25rem;
+        }
+
+        .stat-label {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+        }
+
+        .system-status {
+            display: flex;
+            gap: 1rem;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            background: var(--bg-color);
+            padding: 0.5rem 1rem;
+            border-radius: 999px;
+            border: 1px solid var(--border-color);
+        }
+
+        .env-row {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .pagination {
+            display: flex;
+            justify-content: center;
+            gap: 0.5rem;
+            margin-top: 1.5rem;
+        }
+
+        .bulk-actions {
+            display: none;
+            align-items: center;
+            gap: 1rem;
+            background: var(--info-bg);
+            color: var(--info-text);
+            padding: 0.75rem 1.25rem;
+            border-radius: var(--radius);
+            margin-bottom: 1rem;
+            animation: slideDown 0.2s ease;
+        }
+        
+        .bulk-actions.visible {
+            display: flex;
+        }
+
+        @keyframes slideDown {
+            from { transform: translateY(-10px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
         @media (max-width: 768px) {
             .container { padding: 1rem; }
             .form-grid { grid-template-columns: 1fr; }
@@ -347,16 +434,45 @@
                     <p>Control Plane & Monitoring</p>
                 </div>
             </div>
-            <button id="refresh-btn" class="btn btn-secondary btn-sm">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                Refresh
-            </button>
+            <div style="display: flex; align-items: center; gap: 1rem;">
+                <div id="system-status" class="system-status hide-mobile">
+                    <span>CPU: <b id="cpu-load">0%</b></span>
+                    <span>Mem: <b id="mem-usage">0%</b></span>
+                </div>
+                <button id="refresh-btn" class="btn btn-secondary btn-sm">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                    Refresh
+                </button>
+            </div>
         </header>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value" id="stat-total">0</div>
+                <div class="stat-label">Total Runs</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="stat-24h">0</div>
+                <div class="stat-label">Last 24 Hours</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="stat-success">0%</div>
+                <div class="stat-label">Success Rate</div>
+            </div>
+        </div>
 
         <section class="card">
             <h2>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                 Launch Script
+                <div style="margin-left: auto; display: flex; gap: 0.5rem;">
+                    <select id="favorites-select" class="btn-sm" style="font-weight: normal; width: auto;">
+                        <option value="">Load Favorite...</option>
+                    </select>
+                    <button type="button" id="save-favorite-btn" class="btn btn-secondary btn-sm" title="Save current config">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+                    </button>
+                </div>
             </h2>
             <form id="run-form">
                 <div class="form-grid">
@@ -419,6 +535,14 @@
                             <option value="true">Enabled</option>
                         </select>
                     </div>
+
+                    <div class="form-group" style="grid-column: 1 / -1;">
+                        <label>Environment Variables</label>
+                        <div id="env-vars-container">
+                            <!-- Env vars rows will go here -->
+                        </div>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="addEnvVar()">+ Add Variable</button>
+                    </div>
                 </div>
                 <div style="margin-top: 1.5rem; display: flex; justify-content: flex-end;">
                     <button type="submit" class="btn btn-primary">
@@ -437,6 +561,14 @@
                 </h2>
             </div>
             
+            <div id="bulk-actions" class="bulk-actions">
+                <span style="font-weight: 600;"><span id="selected-count">0</span> selected</span>
+                <div style="margin-left: auto; display: flex; gap: 0.5rem;">
+                    <button onclick="bulkDelete()" class="btn btn-sm" style="background: white; color: var(--danger-text); border: 1px solid var(--danger-text);">Delete Selected</button>
+                    <button onclick="clearSelection()" class="btn btn-sm btn-secondary">Cancel</button>
+                </div>
+            </div>
+
             <div class="controls">
                 <div class="form-group" style="flex-direction: row; align-items: center;">
                     <label for="status-filter">Status:</label>
@@ -459,6 +591,7 @@
                 <table>
                     <thead>
                         <tr>
+                            <th style="width: 40px;"><input type="checkbox" id="select-all" onclick="toggleSelectAll()"></th>
                             <th>ID</th>
                             <th>Status</th>
                             <th>Script</th>
@@ -469,9 +602,15 @@
                         </tr>
                     </thead>
                     <tbody id="runs-table">
-                        <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Loading runs...</td></tr>
+                        <tr><td colspan="8" style="text-align: center; color: var(--text-muted);">Loading runs...</td></tr>
                     </tbody>
                 </table>
+            </div>
+            
+            <div class="pagination">
+                <button id="prev-page" class="btn btn-secondary btn-sm" disabled>Previous</button>
+                <span id="page-info" style="display: flex; align-items: center; font-size: 0.9rem; color: var(--text-muted);">Page 1</span>
+                <button id="next-page" class="btn btn-secondary btn-sm">Next</button>
             </div>
         </section>
     </div>
@@ -507,6 +646,20 @@
         const runOption = document.getElementById('run-option');
         const toastEl = document.getElementById('toast');
 
+        function addEnvVar() {
+            const container = document.getElementById('env-vars-container');
+            const div = document.createElement('div');
+            div.className = 'env-row';
+            div.innerHTML = `
+                <input type="text" placeholder="KEY" style="flex:1" class="env-key" />
+                <input type="text" placeholder="VALUE" style="flex:1" class="env-value" />
+                <button type="button" class="btn btn-secondary btn-sm" onclick="this.parentElement.remove()">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            `;
+            container.appendChild(div);
+        }
+
         function toggleScriptSource() {
             const source = document.querySelector('input[name="script-source"]:checked').value;
             const pathContainer = document.getElementById('path-input-container');
@@ -535,21 +688,57 @@
             return `<span class="status-badge ${cls}">${status}</span>`;
         }
 
+        let logPollInterval = null;
+
         function closeModal() {
             document.getElementById('modal').style.display = 'none';
             document.getElementById('modal-body').textContent = '';
+            if (logPollInterval) {
+                clearInterval(logPollInterval);
+                logPollInterval = null;
+            }
         }
 
         async function viewLogs(runId) {
-            const res = await fetch(`/api/runs/${runId}/logs`);
-            if (!res.ok) {
-                showToast('Unable to fetch logs', 'error');
-                return;
-            }
-            const body = await res.text();
+            if (logPollInterval) clearInterval(logPollInterval);
+            
             document.getElementById('modal-title').textContent = `Logs: ${runId.slice(0, 8)}...`;
-            document.getElementById('modal-body').textContent = body || 'No logs captured yet.';
             document.getElementById('modal').style.display = 'flex';
+            const logPre = document.getElementById('modal-body');
+            const logContainer = logPre.parentElement;
+            logPre.textContent = 'Loading logs...';
+
+            const fetchLogs = async () => {
+                try {
+                    const res = await fetch(`/api/runs/${runId}/logs`);
+                    if (!res.ok) return;
+                    const body = await res.text();
+                    
+                    // Check if user is near bottom
+                    const isScrolledToBottom = logContainer.scrollHeight - logContainer.scrollTop <= logContainer.clientHeight + 100;
+                    
+                    logPre.textContent = body || 'No logs captured yet.';
+                    
+                    if (isScrolledToBottom) {
+                        logContainer.scrollTop = logContainer.scrollHeight;
+                    }
+                } catch (e) {
+                    console.error(e);
+                }
+            };
+
+            await fetchLogs();
+            
+            // Check status to see if we should poll
+            try {
+                const res = await fetch(`/api/runs/${runId}`);
+                if (res.ok) {
+                    const run = await res.json();
+                    if (['queued', 'running'].includes(run.status)) {
+                        logPollInterval = setInterval(fetchLogs, 1000);
+                    }
+                }
+            } catch (e) {}
         }
 
         async function cancelRun(runId) {
@@ -597,8 +786,8 @@
                     return `<tr>
                         <td><span class="code-pill" title="${run.id}">${run.id.slice(0, 8)}</span></td>
                         <td>${statusBadge(run.status)}</td>
-                        <td style="font-weight: 500;">${run.request.script_path}</td>
-                        <td class="hide-mobile"><span style="color: var(--text-muted); font-size: 0.85rem;">${args || '—'}</span></td>
+                        <td><div class="script-path" style="font-weight: 500;">${run.request.script_path}</div></td>
+                        <td class="hide-mobile"><div class="args-cell" style="color: var(--text-muted); font-size: 0.85rem;" title="${args}">${args || '—'}</div></td>
                         <td class="hide-mobile" style="font-size: 0.85rem;">${started}</td>
                         <td class="hide-mobile" style="font-size: 0.85rem;">${duration}</td>
                         <td class="actions">
@@ -609,6 +798,45 @@
                 }).join('');
             } catch (e) {
                 showToast('Unable to load runs', 'error');
+            }
+        }
+
+        async function fetchStats() {
+            try {
+                const res = await fetch('/api/stats');
+                if (!res.ok) return;
+                const stats = await res.json();
+                
+                document.getElementById('stat-total').textContent = stats.total_runs;
+                document.getElementById('stat-24h').textContent = stats.runs_24h;
+                
+                const completed = stats.by_status.completed || 0;
+                // If total is 0, success rate is 0%
+                const rate = stats.total_runs > 0 ? Math.round((completed / stats.total_runs) * 100) : 0;
+                document.getElementById('stat-success').textContent = rate + '%';
+            } catch (e) {
+                console.error('Failed to fetch stats', e);
+            }
+        }
+
+        async function fetchSystemStatus() {
+            try {
+                const res = await fetch('/api/system/status');
+                if (!res.ok) return;
+                const data = await res.json();
+                
+                // CPU load is [1min, 5min, 15min]
+                // We'll show the 1min load. Note: this is not a percentage, but load avg.
+                // We will replace the inner text, keeping the label.
+                if (data.cpu_load && data.cpu_load.length > 0) {
+                    document.getElementById('cpu-load').textContent = data.cpu_load[0].toFixed(2);
+                }
+                
+                if (data.memory && data.memory.percent !== undefined) {
+                    document.getElementById('mem-usage').textContent = data.memory.percent + '%';
+                }
+            } catch (e) {
+                console.error('Failed to fetch system status', e);
             }
         }
 
@@ -629,6 +857,13 @@
             const logLevel = document.getElementById('log-level').value;
             const retry = document.getElementById('retry').value === 'true';
 
+            const envVars = {};
+            document.querySelectorAll('#env-vars-container .env-row').forEach(row => {
+                const key = row.querySelector('.env-key').value.trim();
+                const val = row.querySelector('.env-value').value.trim();
+                if (key) envVars[key] = val;
+            });
+
             try {
                 let res;
                 if (source === 'path') {
@@ -644,6 +879,7 @@
                         timeout,
                         log_level: logLevel,
                         retry_on_failure: retry,
+                        env_vars: envVars
                     };
 
                     res = await fetch('/api/run', {
@@ -664,6 +900,7 @@
                     if (timeout) formData.append('timeout', timeout);
                     formData.append('log_level', logLevel);
                     formData.append('retry_on_failure', retry);
+                    formData.append('env_vars', JSON.stringify(envVars));
                     
                     res = await fetch('/api/run/upload', {
                         method: 'POST',
@@ -684,13 +921,19 @@
                 document.querySelector('input[name="script-source"][value="path"]').checked = true;
                 toggleScriptSource();
                 fetchRuns();
+                fetchStats();
+                fetchSystemStatus();
             } catch (e) {
                 showToast('Network error occurred', 'error');
             }
         }
 
         document.getElementById('run-form').addEventListener('submit', launchRun);
-        document.getElementById('refresh-btn').addEventListener('click', fetchRuns);
+        document.getElementById('refresh-btn').addEventListener('click', () => {
+            fetchRuns();
+            fetchStats();
+            fetchSystemStatus();
+        });
         statusFilter.addEventListener('change', fetchRuns);
         pageSizeInput.addEventListener('change', fetchRuns);
         document.getElementById('modal').addEventListener('click', (e) => { 
@@ -699,8 +942,14 @@
         
         // Initial load
         fetchRuns();
+        fetchStats();
+        fetchSystemStatus();
         // Auto refresh every 5 seconds
-        setInterval(fetchRuns, 5000);
+        setInterval(() => {
+            fetchRuns();
+            fetchStats();
+            fetchSystemStatus();
+        }, 5000);
     </script>
 </body>
 </html>
