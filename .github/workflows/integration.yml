@@ -90,17 +90,6 @@ jobs:
     runs-on: ubuntu-latest
     name: WebAPI Integration Tests
     
-    services:
-      webapi:
-        image: python:3.11-slim
-        options: >-
-          --health-cmd "curl -f http://localhost:9000/api/health || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 9000:9000
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -117,24 +106,60 @@ jobs:
           pip install -r requirements.txt
           cd WEBAPI && pip install -r requirements.txt
 
-      - name: Start WebAPI
+      - name: Start WebAPI service
         run: |
           cd WEBAPI
-          python -m uvicorn api:app --host 0.0.0.0 --port 9000 &
-          sleep 3
-          echo "WebAPI started"
-        timeout-minutes: 1
+          nohup python -m uvicorn api:app --host 0.0.0.0 --port 9000 > webapi.log 2>&1 &
+          WEB_PID=$!
+          echo "WebAPI PID: $WEB_PID"
+          
+          # Wait for service to be ready
+          for i in {1..30}; do
+            if curl -s http://localhost:9000/api/stats > /dev/null 2>&1; then
+              echo "✅ WebAPI is ready"
+              break
+            fi
+            echo "Waiting for WebAPI... ($i/30)"
+            sleep 1
+          done
+        timeout-minutes: 2
 
       - name: Test WebAPI endpoints
         continue-on-error: true
         run: |
           echo "Testing WebAPI endpoints..."
+          echo ""
           
-          # Test health endpoint
-          curl -s http://localhost:9000/api/stats | python -m json.tool || echo "Stats endpoint not available"
+          # Test stats endpoint
+          echo "📊 Testing /api/stats endpoint..."
+          curl -s http://localhost:9000/api/stats | python -m json.tool || echo "⚠️ Stats endpoint failed"
+          echo ""
           
-          # List available templates
-          curl -s http://localhost:9000/api/templates | python -m json.tool || echo "Templates endpoint not available"
+          # Test system status endpoint
+          echo "🖥️ Testing /api/system/status endpoint..."
+          curl -s http://localhost:9000/api/system/status | python -m json.tool || echo "⚠️ System status endpoint failed"
+          echo ""
+          
+          # Test templates endpoint
+          echo "📦 Testing /api/templates endpoint..."
+          curl -s http://localhost:9000/api/templates | python -m json.tool || echo "⚠️ Templates endpoint failed"
+          echo ""
+          
+          # Test runs endpoint
+          echo "▶️ Testing /api/runs endpoint..."
+          curl -s http://localhost:9000/api/runs | python -m json.tool || echo "⚠️ Runs endpoint failed"
+          echo ""
+          
+          echo "✅ WebAPI integration tests completed"
+      
+      - name: Debug WebAPI logs
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -f "WEBAPI/webapi.log" ]; then
+            echo "📋 WebAPI logs:"
+            tail -50 WEBAPI/webapi.log
+          fi
 
   docker-compose-test:
     runs-on: ubuntu-latest
