@@ -6278,6 +6278,7 @@ class ScriptRunner:
         self.max_output_lines = None
         self.hooks = ExecutionHook()
         self.monitor_interval = 0.1
+        self.config_file = config_file
         
         # UPDATED: Phase 2 retry config (replaces old retry_count and retry_delay)
         self.retry_config = RetryConfig()  # Default configuration
@@ -6291,8 +6292,10 @@ class ScriptRunner:
         # NEW: Phase 2 features
         self.enable_history = enable_history
         self.history_manager = None
+        self.history_db_path = None
         if enable_history:
             db_path = history_db or 'script_runner_history.db'
+            self.history_db_path = db_path
             self.history_manager = HistoryManager(db_path=db_path)
         
         # NEW: Trend Analysis (Phase 2)
@@ -6496,6 +6499,30 @@ class ScriptRunner:
         if not self.script_path.endswith('.py'):
             self.logger.warning(f"Script does not have .py extension: {self.script_path}")
         return True
+
+    def get_execution_plan(self) -> Dict[str, Any]:
+        """Return a structured view of how the script will be executed.
+
+        This helper is used by the CLI ``--dry-run`` flag to show what the
+        runner would do without actually launching the subprocess. It surfaces
+        key configuration such as the script path, arguments, timeouts, logging
+        level, configuration file, and history database state.
+
+        Returns:
+            Dict[str, Any]: Execution summary including paths and toggles.
+        """
+        return {
+            'script_path': os.path.abspath(self.script_path),
+            'script_args': list(self.script_args),
+            'timeout': self.timeout,
+            'log_level': logging.getLevelName(self.logger.level),
+            'config_file': os.path.abspath(self.config_file) if self.config_file else None,
+            'history_enabled': self.enable_history,
+            'history_db': os.path.abspath(self.history_db_path) if self.history_db_path else None,
+            'monitor_interval': self.monitor_interval,
+            'retry_strategy': self.retry_config.strategy,
+            'max_attempts': self.retry_config.max_attempts,
+        }
 
     def run_script(self, retry_on_failure: bool = False) -> Dict:
         """Execute script with advanced retry and monitoring capabilities.
@@ -7148,8 +7175,10 @@ Examples:
     parser.add_argument('script', nargs='?', help='Python script to execute')
     parser.add_argument('script_args', nargs='*', help='Arguments to pass to the script')
     parser.add_argument('--timeout', type=int, default=None, help='Execution timeout in seconds')
-    parser.add_argument('--log-level', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'], 
+    parser.add_argument('--log-level', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
                        default='INFO', help='Logging level')
+    parser.add_argument('--dry-run', action='store_true',
+                       help='Validate the script and show execution plan without running it')
     parser.add_argument('--config', help='Configuration file (YAML)')
     parser.add_argument('--monitor-interval', type=float, default=0.1, 
                        help='Process monitor sampling interval (seconds)')
@@ -8478,6 +8507,19 @@ Examples:
             history_db=args.history_db,
             enable_history=not args.disable_history
         )
+
+        if args.dry_run:
+            try:
+                runner.validate_script()
+            except Exception as exc:
+                logging.error(f"Dry-run validation failed: {exc}")
+                return 1
+
+            plan = runner.get_execution_plan()
+            print("\nDRY-RUN: Execution plan (no script executed)")
+            for key, value in plan.items():
+                print(f"  {key}: {value}")
+            return 0
 
         runner.monitor_interval = args.monitor_interval
         runner.suppress_warnings = args.suppress_warnings
