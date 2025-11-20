@@ -60,10 +60,34 @@ class TestScriptRunnerBasics:
         script_file = tmp_path / "test.py"
         script_file.write_text("print('hello')")
         db_file = tmp_path / "history.db"
-        
+
         runner = ScriptRunner(str(script_file), enable_history=True, history_db=str(db_file))
-        
+
         assert runner.enable_history is True
+
+    def test_execution_plan_summary(self, tmp_path):
+        """Ensure execution plan surfaces key configuration without running script."""
+        script_file = tmp_path / "plan.py"
+        script_file.write_text("print('dry run')")
+        db_file = tmp_path / "history.db"
+
+        runner = ScriptRunner(
+            str(script_file),
+            script_args=["--flag", "value"],
+            timeout=5,
+            history_db=str(db_file),
+            enable_history=True,
+            log_level="DEBUG",
+        )
+
+        plan = runner.get_execution_plan()
+
+        assert plan["script_path"].endswith("plan.py")
+        assert plan["script_args"] == ["--flag", "value"]
+        assert plan["timeout"] == 5
+        assert plan["history_enabled"] is True
+        assert plan["history_db"].endswith("history.db")
+        assert plan["log_level"] == "DEBUG"
 
 
 @pytest.mark.unit
