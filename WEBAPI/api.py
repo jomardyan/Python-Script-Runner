@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sqlite3
 import sys
 import threading
@@ -18,7 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -65,6 +66,7 @@ class RunRecord(BaseModel):
 
 RUN_DB_PATH = Path(os.environ.get("WEBAPI_RUN_DB", PROJECT_ROOT / "WEBAPI" / "runs.db"))
 ALLOWED_SCRIPT_ROOT = Path(os.environ.get("WEBAPI_ALLOWED_ROOT", PROJECT_ROOT)).resolve()
+UPLOAD_DIR = PROJECT_ROOT / "WEBAPI" / "uploads"
 
 
 class RunStore:
@@ -275,11 +277,8 @@ def _validate_payload(payload: RunRequest) -> RunRequest:
     return payload
 
 
-@app.post("/api/run", status_code=202)
-def trigger_run(payload: RunRequest, background_tasks: BackgroundTasks) -> Dict[str, str]:
-    """Queue a new script execution and return its identifier."""
-
-    payload = _validate_payload(payload)
+def _queue_run(payload: RunRequest, background_tasks: BackgroundTasks) -> Dict[str, str]:
+    """Helper to queue a run execution."""
     run_id = str(uuid.uuid4())
     now = datetime.utcnow()
     record = RunRecord(
@@ -297,6 +296,51 @@ def trigger_run(payload: RunRequest, background_tasks: BackgroundTasks) -> Dict[
 
     background_tasks.add_task(_execute_run, run_id, payload, cancel_event)
     return {"run_id": run_id, "status": "queued"}
+
+
+@app.post("/api/run", status_code=202)
+def trigger_run(payload: RunRequest, background_tasks: BackgroundTasks) -> Dict[str, str]:
+    """Queue a new script execution and return its identifier."""
+
+    payload = _validate_payload(payload)
+    return _queue_run(payload, background_tasks)
+
+
+@app.post("/api/run/upload", status_code=202)
+def trigger_run_upload(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    args: str = Form(""),
+    timeout: Optional[int] = Form(None),
+    log_level: str = Form("INFO"),
+    retry_on_failure: bool = Form(False),
+) -> Dict[str, str]:
+    """Upload a script and queue execution."""
+    if not file.filename.endswith(('.py', '.pyw')):
+        raise HTTPException(status_code=400, detail="Only Python files are allowed")
+
+    # Ensure upload directory exists
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+    safe_filename = f"{uuid.uuid4().hex}_{file.filename}"
+    file_path = UPLOAD_DIR / safe_filename
+
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    # Parse args (comma separated string)
+    arg_list = [a.strip() for a in args.split(',') if a.strip()]
+
+    payload = RunRequest(
+        script_path=str(file_path.resolve()),
+        args=arg_list,
+        timeout=timeout,
+        log_level=log_level,
+        retry_on_failure=retry_on_failure
+    )
+
+    payload = _validate_payload(payload)
+    return _queue_run(payload, background_tasks)
 
 
 @app.get("/api/runs")

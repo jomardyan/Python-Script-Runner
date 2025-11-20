@@ -6909,10 +6909,6 @@ class ScriptRunner:
                 'stderr_lines': self.metrics.get('stderr_lines', 0),
                 'metrics': self.metrics
             }
-        finally:
-            with self._active_process_lock:
-                self._active_process = None
-
         except subprocess.TimeoutExpired as e:
             monitor.stop()
             end_time = time.time()

@@ -3,205 +3,536 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Script Runner Web API</title>
+    <title>Script Runner Control Plane</title>
     <style>
         :root {
-            color-scheme: light dark;
-            --accent: #4f46e5;
+            --primary: #6366f1;
+            --primary-hover: #4f46e5;
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --border-color: #e2e8f0;
+            --success-bg: #dcfce7;
+            --success-text: #166534;
+            --warning-bg: #fef3c7;
+            --warning-text: #92400e;
+            --danger-bg: #fee2e2;
+            --danger-text: #991b1b;
+            --info-bg: #e0f2fe;
+            --info-text: #075985;
+            --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+            --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            --radius: 0.75rem;
         }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg-color: #0f172a;
+                --card-bg: #1e293b;
+                --text-main: #f1f5f9;
+                --text-muted: #94a3b8;
+                --border-color: #334155;
+                --success-bg: #052e16;
+                --success-text: #4ade80;
+                --warning-bg: #451a03;
+                --warning-text: #fbbf24;
+                --danger-bg: #450a0a;
+                --danger-text: #f87171;
+                --info-bg: #082f49;
+                --info-text: #38bdf8;
+            }
+        }
+
+        * { box-sizing: border-box; }
+
         body {
-            font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
             margin: 0;
-            padding: 0 1.5rem 2rem;
-            background: radial-gradient(circle at 20% 20%, rgba(79, 70, 229, 0.1), transparent 40%),
-                radial-gradient(circle at 80% 10%, rgba(16, 185, 129, 0.1), transparent 35%),
-                var(--page-bg, #f7f7fb);
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            line-height: 1.5;
         }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
         header {
-            padding: 1.5rem 0;
             display: flex;
-            align-items: baseline;
+            align-items: center;
             justify-content: space-between;
-            gap: 1rem;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border-color);
         }
-        h1 {
-            margin: 0;
-            color: var(--accent);
-            letter-spacing: -0.02em;
-        }
-        .card {
-            background: rgba(255,255,255,0.82);
-            backdrop-filter: blur(8px);
-            border: 1px solid rgba(0,0,0,0.05);
-            border-radius: 12px;
-            padding: 1rem 1.25rem;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.06);
-        }
-        form {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 0.75rem;
-            align-items: end;
-        }
-        label {
+
+        .brand {
             display: flex;
-            flex-direction: column;
-            font-weight: 600;
-            gap: 0.3rem;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .brand h1 {
+            margin: 0;
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--primary), #818cf8);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .brand p {
+            margin: 0;
+            color: var(--text-muted);
             font-size: 0.9rem;
         }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            border: 1px solid var(--border-color);
+        }
+
+        h2 {
+            margin-top: 0;
+            font-size: 1.25rem;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        label {
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: var(--text-main);
+        }
+
         input, select {
-            padding: 0.6rem 0.75rem;
-            border-radius: 8px;
-            border: 1px solid rgba(0,0,0,0.1);
+            padding: 0.625rem;
+            border-radius: 0.5rem;
+            border: 1px solid var(--border-color);
+            background: var(--bg-color);
+            color: var(--text-main);
             font-size: 0.95rem;
+            transition: border-color 0.15s, box-shadow 0.15s;
         }
-        button {
-            background: linear-gradient(135deg, var(--accent), #06b6d4);
-            color: white;
-            border: none;
-            padding: 0.75rem 1.2rem;
-            border-radius: 10px;
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.625rem 1.25rem;
+            border-radius: 0.5rem;
+            font-weight: 600;
+            font-size: 0.95rem;
             cursor: pointer;
-            font-weight: 700;
-            box-shadow: 0 8px 20px rgba(79, 70, 229, 0.25);
+            transition: all 0.2s;
+            border: none;
+            gap: 0.5rem;
         }
+
+        .btn-primary {
+            background-color: var(--primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background-color: var(--primary-hover);
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover {
+            background-color: var(--card-bg);
+            border-color: var(--text-muted);
+        }
+
+        .btn-sm {
+            padding: 0.375rem 0.75rem;
+            font-size: 0.875rem;
+        }
+
+        .controls {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 1rem;
+            padding: 1rem;
+            background: var(--bg-color);
+            border-radius: 0.5rem;
+        }
+
         table {
             width: 100%;
-            border-collapse: collapse;
-            margin-top: 1rem;
+            border-collapse: separate;
+            border-spacing: 0;
         }
-        th, td {
+
+        th {
             text-align: left;
-            padding: 0.65rem 0.5rem;
-            border-bottom: 1px solid rgba(0,0,0,0.06);
+            padding: 1rem;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border-color);
+            background: var(--bg-color);
         }
-        th { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.03em; }
-        .status { padding: 0.2rem 0.6rem; border-radius: 999px; font-weight: 700; font-size: 0.85rem; }
-        .queued { background: #fff7ed; color: #c2410c; }
-        .running { background: #ecfeff; color: #0ea5e9; }
-        .completed { background: #ecfdf3; color: #15803d; }
-        .failed { background: #fef2f2; color: #b91c1c; }
-        footer { margin-top: 2rem; font-size: 0.9rem; color: #6b7280; }
-        .controls { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
-        .pill { padding: 0.35rem 0.7rem; border-radius: 999px; background: rgba(0,0,0,0.05); font-weight: 600; font-size: 0.85rem; }
-        .actions button { margin-right: 0.4rem; background: #f3f4f6; color: #111827; box-shadow: none; padding: 0.55rem 0.8rem; }
-        .actions button.primary { background: linear-gradient(135deg, var(--accent), #06b6d4); color: #fff; }
-        pre { background: #0f172a; color: #e2e8f0; padding: 1rem; border-radius: 8px; overflow: auto; max-height: 50vh; }
-        #modal { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; }
-        #modal .dialog { background: #fff; color: #0f172a; padding: 1rem 1.2rem; border-radius: 10px; width: min(800px, 90vw); max-height: 80vh; overflow: auto; }
-        #modal header { display: flex; align-items: center; justify-content: space-between; }
+
+        td {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 0.95rem;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: capitalize;
+        }
+
+        .status-queued { background: var(--warning-bg); color: var(--warning-text); }
+        .status-running { background: var(--info-bg); color: var(--info-text); }
+        .status-completed { background: var(--success-bg); color: var(--success-text); }
+        .status-failed { background: var(--danger-bg); color: var(--danger-text); }
+        .status-cancelled { background: var(--bg-color); color: var(--text-muted); border: 1px solid var(--border-color); }
+
+        .code-pill {
+            font-family: monospace;
+            background: var(--bg-color);
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.85rem;
+            color: var(--primary);
+        }
+
+        .actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        /* Modal */
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 50;
+        }
+
+        .modal {
+            background: var(--card-bg);
+            width: 90%;
+            max-width: 900px;
+            max-height: 85vh;
+            border-radius: var(--radius);
+            box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .modal-header {
+            padding: 1.25rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-body {
+            padding: 0;
+            overflow: auto;
+            background: #0f172a;
+            flex: 1;
+        }
+
+        pre {
+            margin: 0;
+            padding: 1.5rem;
+            color: #e2e8f0;
+            font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+            font-size: 0.9rem;
+            line-height: 1.6;
+            white-space: pre-wrap;
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            padding: 1rem 1.5rem;
+            background: var(--card-bg);
+            border-left: 4px solid var(--primary);
+            box-shadow: var(--shadow);
+            border-radius: 0.5rem;
+            transform: translateY(150%);
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-weight: 500;
+        }
+
+        .toast.show {
+            transform: translateY(0);
+        }
+
+        .toast.success { border-color: var(--success); }
+        .toast.error { border-color: var(--danger); }
+
+        @media (max-width: 768px) {
+            .container { padding: 1rem; }
+            .form-grid { grid-template-columns: 1fr; }
+            th, td { padding: 0.75rem 0.5rem; }
+            .hide-mobile { display: none; }
+        }
     </style>
 </head>
 <body>
-    <header>
-        <div>
-            <h1>Runner Control Plane</h1>
-            <p>Trigger scripts through the API and monitor their progress in real time.</p>
-        </div>
-        <button id="refresh">Refresh Runs</button>
-    </header>
+    <div class="container">
+        <header>
+            <div class="brand">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--primary);">
+                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                </svg>
+                <div>
+                    <h1>Script Runner</h1>
+                    <p>Control Plane & Monitoring</p>
+                </div>
+            </div>
+            <button id="refresh-btn" class="btn btn-secondary btn-sm">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                Refresh
+            </button>
+        </header>
 
-    <section class="card" aria-labelledby="launch-form">
-        <h2 id="launch-form">Launch a Script</h2>
-        <form id="run-form">
-            <label>Script Path
-                <input type="text" id="script-path" placeholder="./examples/sample.py" required />
-            </label>
-            <label>Arguments (comma separated)
-                <input type="text" id="script-args" placeholder="--flag,value" />
-            </label>
-            <label>Run Option
-                <select id="run-option">
-                    <option value="">Standard run</option>
-                    <option value="--dry-run">Dry run (--dry-run)</option>
-                    <option value="--disable-history">Disable history (--disable-history)</option>
-                    <option value="--show-history">Show history (--show-history)</option>
-                </select>
-            </label>
-            <label>Timeout (seconds)
-                <input type="number" id="timeout" min="0" placeholder="Optional" />
-            </label>
-            <label>Log Level
-                <select id="log-level">
-                    <option>INFO</option>
-                    <option>DEBUG</option>
-                    <option>WARNING</option>
-                    <option>ERROR</option>
-                </select>
-            </label>
-            <label>Retry on Failure
-                <select id="retry">
-                    <option value="false">Disabled</option>
-                    <option value="true">Enabled</option>
-                </select>
-            </label>
-            <button type="submit">Start Run</button>
-        </form>
-        <p id="message"></p>
-    </section>
+        <section class="card">
+            <h2>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                Launch Script
+            </h2>
+            <form id="run-form">
+                <div class="form-grid">
+                    <div class="form-group" style="grid-column: 1 / -1;">
+                        <label>Script Source</label>
+                        <div style="display: flex; gap: 1rem; margin-bottom: 0.5rem;">
+                            <label style="flex-direction: row; align-items: center; gap: 0.5rem; font-weight: normal;">
+                                <input type="radio" name="script-source" value="path" checked onchange="toggleScriptSource()"> Server Path
+                            </label>
+                            <label style="flex-direction: row; align-items: center; gap: 0.5rem; font-weight: normal;">
+                                <input type="radio" name="script-source" value="upload" onchange="toggleScriptSource()"> Upload File
+                            </label>
+                        </div>
 
-    <section class="card" style="margin-top: 1rem;" aria-labelledby="recent-runs">
-        <h2 id="recent-runs">Recent Runs</h2>
-        <div class="controls" style="margin-bottom: 0.5rem;">
-            <label style="font-weight:600;">Status Filter
-                <select id="status-filter">
-                    <option value="">Any</option>
-                    <option value="queued">Queued</option>
-                    <option value="running">Running</option>
-                    <option value="completed">Completed</option>
-                    <option value="failed">Failed</option>
-                    <option value="cancelled">Cancelled</option>
-                </select>
-            </label>
-            <label style="font-weight:600;">Page Size
-                <input type="number" id="page-size" value="50" min="1" max="200" />
-            </label>
-            <button id="refresh">Refresh Runs</button>
-        </div>
-        <table>
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Status</th>
-                    <th>Script</th>
-                    <th>Args</th>
-                    <th>Started</th>
-                    <th>Finished</th>
-                    <th>Exit Code</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody id="runs-table">
-                <tr><td colspan="6">No runs yet.</td></tr>
-            </tbody>
-        </table>
-    </section>
+                        <div id="path-input-container">
+                            <label for="script-path">Script Path</label>
+                            <input type="text" id="script-path" placeholder="./examples/sample.py" />
+                        </div>
+
+                        <div id="file-input-container" style="display: none;">
+                            <label for="script-file">Select Python File</label>
+                            <input type="file" id="script-file" accept=".py,.pyw" />
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="script-args">Arguments</label>
+                        <input type="text" id="script-args" placeholder="--flag, value" />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="run-option">Preset Options</label>
+                        <select id="run-option">
+                            <option value="">None</option>
+                            <option value="--dry-run">Dry Run</option>
+                            <option value="--disable-history">Disable History</option>
+                            <option value="--show-history">Show History</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="timeout">Timeout (sec)</label>
+                        <input type="number" id="timeout" min="0" placeholder="Optional" />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="log-level">Log Level</label>
+                        <select id="log-level">
+                            <option>INFO</option>
+                            <option>DEBUG</option>
+                            <option>WARNING</option>
+                            <option>ERROR</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="retry">Retry Policy</label>
+                        <select id="retry">
+                            <option value="false">Disabled</option>
+                            <option value="true">Enabled</option>
+                        </select>
+                    </div>
+                </div>
+                <div style="margin-top: 1.5rem; display: flex; justify-content: flex-end;">
+                    <button type="submit" class="btn btn-primary">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        Start Execution
+                    </button>
+                </div>
+            </form>
+        </section>
+
+        <section class="card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                <h2 style="margin: 0;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                    Recent Runs
+                </h2>
+            </div>
+            
+            <div class="controls">
+                <div class="form-group" style="flex-direction: row; align-items: center;">
+                    <label for="status-filter">Status:</label>
+                    <select id="status-filter" style="padding: 0.4rem;">
+                        <option value="">All Statuses</option>
+                        <option value="queued">Queued</option>
+                        <option value="running">Running</option>
+                        <option value="completed">Completed</option>
+                        <option value="failed">Failed</option>
+                        <option value="cancelled">Cancelled</option>
+                    </select>
+                </div>
+                <div class="form-group" style="flex-direction: row; align-items: center;">
+                    <label for="page-size">Limit:</label>
+                    <input type="number" id="page-size" value="50" min="1" max="200" style="width: 80px; padding: 0.4rem;" />
+                </div>
+            </div>
+
+            <div style="overflow-x: auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Status</th>
+                            <th>Script</th>
+                            <th class="hide-mobile">Args</th>
+                            <th class="hide-mobile">Started</th>
+                            <th class="hide-mobile">Duration</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="runs-table">
+                        <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Loading runs...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
 
     <footer>
-        <p>Powered by FastAPI. The API is available at <code>/api/run</code> and <code>/api/runs</code>.</p>
+        <div class="container" style="text-align: center; color: var(--text-muted); font-size: 0.875rem;">
+            <p>Powered by FastAPI & ScriptRunner</p>
+        </div>
     </footer>
 
-    <div id="modal" role="dialog" aria-modal="true" aria-label="Run logs">
-        <div class="dialog">
-            <header>
-                <h3 id="modal-title">Logs</h3>
-                <button onclick="closeModal()">Close</button>
-            </header>
-            <pre id="modal-body"></pre>
+    <!-- Modal -->
+    <div id="modal" class="modal-backdrop">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="modal-title" style="margin: 0;">Execution Logs</h3>
+                <button onclick="closeModal()" class="btn btn-secondary btn-sm">Close</button>
+            </div>
+            <div class="modal-body">
+                <pre id="modal-body"></pre>
+            </div>
         </div>
     </div>
 
+    <!-- Toast -->
+    <div id="toast" class="toast">
+        <span id="toast-message"></span>
+    </div>
+
     <script>
-        const messageEl = document.getElementById('message');
         const runsTable = document.getElementById('runs-table');
         const statusFilter = document.getElementById('status-filter');
         const pageSizeInput = document.getElementById('page-size');
         const runOption = document.getElementById('run-option');
+        const toastEl = document.getElementById('toast');
 
-        function statusChip(status) {
-            const cls = status.toLowerCase();
-            return `<span class="status ${cls}">${status}</span>`;
+        function toggleScriptSource() {
+            const source = document.querySelector('input[name="script-source"]:checked').value;
+            const pathContainer = document.getElementById('path-input-container');
+            const fileContainer = document.getElementById('file-input-container');
+            
+            if (source === 'path') {
+                pathContainer.style.display = 'block';
+                fileContainer.style.display = 'none';
+            } else {
+                pathContainer.style.display = 'none';
+                fileContainer.style.display = 'block';
+            }
+        }
+
+        function showToast(message, type = 'success') {
+            const msgEl = document.getElementById('toast-message');
+            msgEl.textContent = message;
+            toastEl.className = `toast ${type} show`;
+            setTimeout(() => {
+                toastEl.classList.remove('show');
+            }, 3000);
+        }
+
+        function statusBadge(status) {
+            const cls = `status-${status.toLowerCase()}`;
+            return `<span class="status-badge ${cls}">${status}</span>`;
         }
 
         function closeModal() {
@@ -212,23 +543,31 @@
         async function viewLogs(runId) {
             const res = await fetch(`/api/runs/${runId}/logs`);
             if (!res.ok) {
-                messageEl.textContent = 'Unable to fetch logs';
+                showToast('Unable to fetch logs', 'error');
                 return;
             }
             const body = await res.text();
-            document.getElementById('modal-title').textContent = `Logs for ${runId}`;
+            document.getElementById('modal-title').textContent = `Logs: ${runId.slice(0, 8)}...`;
             document.getElementById('modal-body').textContent = body || 'No logs captured yet.';
             document.getElementById('modal').style.display = 'flex';
         }
 
         async function cancelRun(runId) {
+            if (!confirm('Are you sure you want to cancel this run?')) return;
+            
             const res = await fetch(`/api/runs/${runId}/cancel`, { method: 'POST' });
             if (!res.ok) {
-                messageEl.textContent = 'Unable to cancel run (it may have finished).';
+                showToast('Unable to cancel run', 'error');
                 return;
             }
-            messageEl.textContent = `Run ${runId} cancelled.`;
+            showToast(`Run ${runId.slice(0, 8)}... cancelled`);
             fetchRuns();
+        }
+
+        function formatDuration(start, end) {
+            if (!end) return '—';
+            const ms = new Date(end) - new Date(start);
+            return (ms / 1000).toFixed(2) + 's';
         }
 
         async function fetchRuns() {
@@ -239,83 +578,129 @@
                 params.append('status', statusFilter.value);
             }
 
-            const res = await fetch(`/api/runs?${params.toString()}`);
-            if (!res.ok) {
-                messageEl.textContent = 'Unable to load runs.';
-                return;
+            try {
+                const res = await fetch(`/api/runs?${params.toString()}`);
+                if (!res.ok) throw new Error('Failed to fetch');
+                
+                const runs = await res.json();
+                if (!runs.length) {
+                    runsTable.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 2rem;">No runs found.</td></tr>';
+                    return;
+                }
+                
+                runsTable.innerHTML = runs.map(run => {
+                    const started = new Date(run.started_at).toLocaleString();
+                    const duration = formatDuration(run.started_at, run.finished_at);
+                    const args = (run.request.args || []).join(' ');
+                    const canCancel = ['queued', 'running'].includes(run.status.toLowerCase());
+                    
+                    return `<tr>
+                        <td><span class="code-pill" title="${run.id}">${run.id.slice(0, 8)}</span></td>
+                        <td>${statusBadge(run.status)}</td>
+                        <td style="font-weight: 500;">${run.request.script_path}</td>
+                        <td class="hide-mobile"><span style="color: var(--text-muted); font-size: 0.85rem;">${args || '—'}</span></td>
+                        <td class="hide-mobile" style="font-size: 0.85rem;">${started}</td>
+                        <td class="hide-mobile" style="font-size: 0.85rem;">${duration}</td>
+                        <td class="actions">
+                            <button class="btn btn-secondary btn-sm" onclick="viewLogs('${run.id}')">Logs</button>
+                            ${canCancel ? `<button class="btn btn-secondary btn-sm" style="color: var(--danger-text); border-color: var(--danger-bg);" onclick="cancelRun('${run.id}')">Cancel</button>` : ''}
+                        </td>
+                    </tr>`;
+                }).join('');
+            } catch (e) {
+                showToast('Unable to load runs', 'error');
             }
-            const runs = await res.json();
-            if (!runs.length) {
-                runsTable.innerHTML = '<tr><td colspan="7">No runs yet.</td></tr>';
-                return;
-            }
-            runsTable.innerHTML = runs.map(run => {
-                const started = new Date(run.started_at).toLocaleString();
-                const finished = run.finished_at ? new Date(run.finished_at).toLocaleString() : '—';
-                const exitCode = run.result?.returncode ?? '—';
-                const args = (run.request.args || []).join(' ');
-                const canCancel = ['queued', 'running'].includes(run.status.toLowerCase());
-                return `<tr>
-                    <td style="font-family: monospace;">${run.id}</td>
-                    <td>${statusChip(run.status)}</td>
-                    <td>${run.request.script_path}</td>
-                    <td><span class="pill">${args || '—'}</span></td>
-                    <td>${started}</td>
-                    <td>${finished}</td>
-                    <td>${exitCode}</td>
-                    <td class="actions">
-                        <button class="primary" onclick="viewLogs('${run.id}')">Logs</button>
-                        ${canCancel ? `<button onclick="cancelRun('${run.id}')">Cancel</button>` : ''}
-                    </td>
-                </tr>`;
-            }).join('');
         }
 
         async function launchRun(event) {
             event.preventDefault();
-            const scriptPath = document.getElementById('script-path').value.trim();
-            if (!scriptPath) {
-                messageEl.textContent = 'Script path is required.';
-                return;
-            }
+            
+            const source = document.querySelector('input[name="script-source"]:checked').value;
             const args = [];
-            if (runOption.value) {
-                args.push(runOption.value);
-            }
+            if (runOption.value) args.push(runOption.value);
+            
             const extraArgs = (document.getElementById('script-args').value || '')
                 .split(',')
                 .map(v => v.trim())
                 .filter(Boolean);
             args.push(...extraArgs);
-            const payload = {
-                script_path: scriptPath,
-                args,
-                timeout: document.getElementById('timeout').value || null,
-                log_level: document.getElementById('log-level').value,
-                retry_on_failure: document.getElementById('retry').value === 'true',
-            };
-            const res = await fetch('/api/run', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-            if (!res.ok) {
-                const err = await res.json().catch(() => ({}));
-                messageEl.textContent = err.detail || 'Unable to start run. Check the API server logs.';
-                return;
+
+            const timeout = document.getElementById('timeout').value || null;
+            const logLevel = document.getElementById('log-level').value;
+            const retry = document.getElementById('retry').value === 'true';
+
+            try {
+                let res;
+                if (source === 'path') {
+                    const scriptPath = document.getElementById('script-path').value.trim();
+                    if (!scriptPath) {
+                        showToast('Script path is required', 'error');
+                        return;
+                    }
+                    
+                    const payload = {
+                        script_path: scriptPath,
+                        args,
+                        timeout,
+                        log_level: logLevel,
+                        retry_on_failure: retry,
+                    };
+
+                    res = await fetch('/api/run', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                } else {
+                    const fileInput = document.getElementById('script-file');
+                    if (!fileInput.files.length) {
+                        showToast('Please select a file', 'error');
+                        return;
+                    }
+                    
+                    const formData = new FormData();
+                    formData.append('file', fileInput.files[0]);
+                    formData.append('args', args.join(','));
+                    if (timeout) formData.append('timeout', timeout);
+                    formData.append('log_level', logLevel);
+                    formData.append('retry_on_failure', retry);
+                    
+                    res = await fetch('/api/run/upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+                }
+                
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    showToast(err.detail || 'Unable to start run', 'error');
+                    return;
+                }
+                
+                const data = await res.json();
+                showToast(`Run queued successfully`, 'success');
+                document.getElementById('run-form').reset();
+                // Reset radio button state
+                document.querySelector('input[name="script-source"][value="path"]').checked = true;
+                toggleScriptSource();
+                fetchRuns();
+            } catch (e) {
+                showToast('Network error occurred', 'error');
             }
-            const data = await res.json();
-            messageEl.textContent = `Run ${data.run_id} queued.`;
-            fetchRuns();
         }
 
         document.getElementById('run-form').addEventListener('submit', launchRun);
-        document.getElementById('refresh').addEventListener('click', fetchRuns);
+        document.getElementById('refresh-btn').addEventListener('click', fetchRuns);
         statusFilter.addEventListener('change', fetchRuns);
         pageSizeInput.addEventListener('change', fetchRuns);
-        document.getElementById('modal').addEventListener('click', (e) => { if (e.target.id === 'modal') closeModal(); });
+        document.getElementById('modal').addEventListener('click', (e) => { 
+            if (e.target.classList.contains('modal-backdrop')) closeModal(); 
+        });
+        
+        // Initial load
         fetchRuns();
-        setInterval(fetchRuns, 4000);
+        // Auto refresh every 5 seconds
+        setInterval(fetchRuns, 5000);
     </script>
 </body>
 </html>
