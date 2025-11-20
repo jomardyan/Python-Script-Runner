@@ -7048,6 +7048,129 @@ class ScriptRunner:
             self.logger.warning(f"Cost estimation failed: {e}")
             return None
 
+    # ------------------------------------------------------------------
+    # General-purpose helpers derived from the previous v7 enhancement
+    # module. These helpers make the advanced features directly
+    # accessible from ScriptRunner without requiring a separate wrapper.
+    # ------------------------------------------------------------------
+    def pre_execution_security_scan(
+        self, script_path: Optional[str] = None, block_on_critical: bool = False
+    ) -> Dict[str, Any]:
+        """Run code analysis before execution.
+
+        Args:
+            script_path: Optional explicit script path; defaults to runner script.
+            block_on_critical: Whether to mark the scan as failed when critical
+                findings are present.
+
+        Returns:
+            Dict[str, Any]: Scan outcome including findings and block status.
+        """
+        target = script_path or self.script_path
+
+        if not self.enable_code_analysis or not self.code_analyzer:
+            return {'success': True, 'findings': []}
+
+        try:
+            result = self.code_analyzer.analyze(target)
+            critical_findings = getattr(result, 'critical_findings', [])
+            findings = getattr(result, 'findings', [])
+
+            if critical_findings and block_on_critical:
+                self.logger.error(f"Critical security findings detected in {target}")
+                return {
+                    'success': False,
+                    'findings': [f.to_dict() if hasattr(f, 'to_dict') else f for f in critical_findings],
+                    'blocked': True,
+                }
+
+            return {
+                'success': True,
+                'findings': [f.to_dict() if hasattr(f, 'to_dict') else f for f in findings],
+                'critical_count': len(critical_findings),
+            }
+        except Exception as e:
+            self.logger.error(f"Security scan error: {e}")
+            return {'success': False, 'error': str(e)}
+
+    def scan_dependencies(self, requirements_file: str = 'requirements.txt') -> Dict[str, Any]:
+        """Scan dependencies for vulnerabilities using the configured scanner."""
+        if not self.enable_dependency_scanning or not self.dependency_scanner:
+            return {'success': True, 'vulnerabilities': []}
+
+        if not os.path.exists(requirements_file):
+            return {'success': False, 'error': f'{requirements_file} not found'}
+
+        try:
+            result = self.dependency_scanner.scan_requirements(requirements_file)
+            vulnerabilities = getattr(result, 'vulnerabilities', [])
+            return {
+                'success': getattr(result, 'success', True),
+                'vulnerability_count': len(vulnerabilities),
+                'vulnerabilities': [v.to_dict() if hasattr(v, 'to_dict') else v for v in vulnerabilities],
+                'sbom': getattr(result, 'sbom', None),
+            }
+        except Exception as e:
+            self.logger.error(f"Dependency scan error: {e}")
+            return {'success': False, 'error': str(e)}
+
+    def scan_secrets(self, path: str = '.') -> Dict[str, Any]:
+        """Scan a path for hardcoded secrets."""
+        if not self.enable_secret_scanning or not self.secret_scanner:
+            return {'success': True, 'secrets': []}
+
+        try:
+            if os.path.isfile(path):
+                result = self.secret_scanner.scan_file(path)
+            else:
+                result = self.secret_scanner.scan_directory(path)
+
+            secrets = getattr(result, 'secrets', [])
+            return {
+                'success': getattr(result, 'success', True),
+                'has_secrets': getattr(result, 'has_secrets', bool(secrets)),
+                'secret_count': len(secrets),
+                'secrets': [s.to_dict() if hasattr(s, 'to_dict') else s for s in secrets],
+            }
+        except Exception as e:
+            self.logger.error(f"Secret scan error: {e}")
+            return {'success': False, 'error': str(e)}
+
+    def start_tracing_span(self, span_name: str):
+        """Start a distributed tracing span using the configured tracer."""
+        if self.tracing_manager:
+            return self.tracing_manager.trace_span(span_name)
+
+        from contextlib import contextmanager
+
+        @contextmanager
+        def noop():
+            yield None
+
+        return noop()
+
+    def start_cost_tracking(self) -> None:
+        """Begin monitoring execution costs if enabled."""
+        if self.cost_tracker:
+            self.cost_tracker.start_monitoring()
+            self.logger.info("Cost tracking started")
+
+    def stop_cost_tracking(self) -> Dict[str, Any]:
+        """Stop cost tracking and return a summary report."""
+        if not self.cost_tracker:
+            return {}
+
+        try:
+            report = self.cost_tracker.get_cost_report()
+            return {
+                'total_estimated_cost_usd': getattr(report, 'total_estimated_cost_usd', 0),
+                'cost_by_provider': getattr(report, 'cost_by_provider', {}),
+                'cost_by_service': getattr(report, 'cost_by_service', {}),
+            }
+        except Exception as e:
+            self.logger.error(f"Cost tracking error: {e}")
+            return {}
+
     def start_execution_tracing(self) -> Optional[Any]:
         """Start OpenTelemetry tracing for script execution.
         
