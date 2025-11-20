@@ -6444,6 +6444,10 @@ class ScriptRunner:
         # Workflow Engine (v7)
         self.workflow_engine = None
         self.enable_workflows = False
+
+        # WEBAPI integration: track active process for cancellation requests
+        self._active_process = None
+        self._active_process_lock = threading.Lock()
         
         # OpenTelemetry Tracing (v7)
         self.tracing_manager = None
@@ -6696,7 +6700,7 @@ class ScriptRunner:
             >>> if result['returncode'] == 0:
             ...     print(f"Success! Took {result['metrics']['execution_time_seconds']}s")
             ... else:
-            ...     print(f"Failed with exit code {result['returncode']}")
+                    ...     print(f"Failed with exit code {result['returncode']}")
         """
         total_start_time = time.time()
         last_result = None
@@ -6745,7 +6749,7 @@ class ScriptRunner:
                     
                 except Exception as e:
                     total_time = time.time() - total_start_time
-                    
+
                     should_retry = self.retry_config.should_retry(
                         error=e,
                         exit_code=-1,
@@ -6783,6 +6787,29 @@ class ScriptRunner:
         finally:
             self.retry_config.max_attempts = original_max_attempts
 
+    def cancel_active_run(self) -> bool:
+        """Attempt to terminate the active child process if running."""
+
+        with self._active_process_lock:
+            process = self._active_process
+        if not process:
+            return False
+
+        try:
+            for child in process.children(recursive=True):
+                try:
+                    child.kill()
+                except Exception:
+                    continue
+            process.kill()
+            process.wait(timeout=5)
+            return True
+        except Exception:
+            return False
+        finally:
+            with self._active_process_lock:
+                self._active_process = None
+
     def _execute_script(self, attempt_number: int = 1) -> Dict:
         self.validate_script()
 
@@ -6817,6 +6844,8 @@ class ScriptRunner:
 
             try:
                 child_process = psutil.Process(proc.pid)
+                with self._active_process_lock:
+                    self._active_process = child_process
                 monitor.start(child_process)
             except psutil.NoSuchProcess:
                 self.logger.warning("Could not attach monitor to child process")
@@ -6878,6 +6907,9 @@ class ScriptRunner:
                 'stderr_lines': self.metrics.get('stderr_lines', 0),
                 'metrics': self.metrics
             }
+        finally:
+            with self._active_process_lock:
+                self._active_process = None
 
             # NEW: Check alerts
             self.alert_manager.check_alerts(self.metrics)
