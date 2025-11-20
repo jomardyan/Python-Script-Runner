@@ -57,7 +57,7 @@ docker run --rm psr myscript.py
 ```bash
 python runner.py --version
 python runner.py --help
-python runner.py test_script.py
+python runner.py examples/sample_script.py
 ```
 
 ## Troubleshooting

@@ -201,7 +201,7 @@ def get_password():
     password = "hardcoded_password"  # This is a security issue
     return password
 """
-    py_file = tmp_path / "test_script.py"
+    py_file = tmp_path / "sample_script.py"
     py_file.write_text(code)
     return py_file
 

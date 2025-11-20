@@ -186,6 +186,8 @@ python -m runner script.py --slack-webhook "YOUR_WEBHOOK_URL"
 python-script-runner myscript.py
 ```
 
+> Need a quick smoke test? Run the bundled sample script with `python -m runner examples/sample_script.py` to see the default metrics output without creating your own file first.
+
 ### 📊 Default Output - Comprehensive Metrics Report
 
 Every run automatically displays a detailed metrics report with:
