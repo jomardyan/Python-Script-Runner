@@ -6444,6 +6444,10 @@ class ScriptRunner:
         # Workflow Engine (v7)
         self.workflow_engine = None
         self.enable_workflows = False
+
+        # WEBAPI integration: track active process for cancellation requests
+        self._active_process = None
+        self._active_process_lock = threading.Lock()
         
         # OpenTelemetry Tracing (v7)
         self.tracing_manager = None
@@ -6696,7 +6700,7 @@ class ScriptRunner:
             >>> if result['returncode'] == 0:
             ...     print(f"Success! Took {result['metrics']['execution_time_seconds']}s")
             ... else:
-            ...     print(f"Failed with exit code {result['returncode']}")
+                    ...     print(f"Failed with exit code {result['returncode']}")
         """
         total_start_time = time.time()
         last_result = None
@@ -6745,7 +6749,7 @@ class ScriptRunner:
                     
                 except Exception as e:
                     total_time = time.time() - total_start_time
-                    
+
                     should_retry = self.retry_config.should_retry(
                         error=e,
                         exit_code=-1,
@@ -6783,6 +6787,29 @@ class ScriptRunner:
         finally:
             self.retry_config.max_attempts = original_max_attempts
 
+    def cancel_active_run(self) -> bool:
+        """Attempt to terminate the active child process if running."""
+
+        with self._active_process_lock:
+            process = self._active_process
+        if not process:
+            return False
+
+        try:
+            for child in process.children(recursive=True):
+                try:
+                    child.kill()
+                except Exception:
+                    continue
+            process.kill()
+            process.wait(timeout=5)
+            return True
+        except Exception:
+            return False
+        finally:
+            with self._active_process_lock:
+                self._active_process = None
+
     def _execute_script(self, attempt_number: int = 1) -> Dict:
         self.validate_script()
 
@@ -6804,6 +6831,8 @@ class ScriptRunner:
 
         monitor = ProcessMonitor(interval=self.monitor_interval)
         child_process = None
+        result: Dict[str, Any] = {}
+        end_timestamp: Optional[str] = None
 
         try:
             proc = subprocess.Popen(
@@ -6817,6 +6846,8 @@ class ScriptRunner:
 
             try:
                 child_process = psutil.Process(proc.pid)
+                with self._active_process_lock:
+                    self._active_process = child_process
                 monitor.start(child_process)
             except psutil.NoSuchProcess:
                 self.logger.warning("Could not attach monitor to child process")
@@ -6829,8 +6860,8 @@ class ScriptRunner:
                     for child in child_process.children(recursive=True):
                         try:
                             child.kill()
-                        except:
-                            pass
+                        except Exception:
+                            continue
                     child_process.kill()
                 proc.kill()
                 stdout, stderr = proc.communicate()
@@ -6879,9 +6910,69 @@ class ScriptRunner:
                 'metrics': self.metrics
             }
 
+        except subprocess.TimeoutExpired as e:
+            monitor.stop()
+            end_time = time.time()
+            end_timestamp = datetime.now().isoformat()
+            execution_time = end_time - start_time
+
+            self.metrics = {
+                'script_path': self.script_path,
+                'script_args': self.script_args,
+                'start_time': start_timestamp,
+                'end_time': end_timestamp,
+                'execution_time_seconds': round(execution_time, 4),
+                'exit_code': -1,
+                'success': False,
+                'attempt_number': attempt_number,
+                'timeout_seconds': self.timeout,
+                'timed_out': True,
+                'error': 'Script execution timed out',
+                **monitor.get_summary()
+            }
+
+            result = {
+                'stdout': e.stdout or '',
+                'stderr': e.stderr or '',
+                'returncode': -1,
+                'success': False,
+                'metrics': self.metrics
+            }
+
+        except Exception as e:
+            monitor.stop()
+            end_timestamp = datetime.now().isoformat()
+            self.logger.error(f"Execution error: {e}")
+            self.logger.debug(traceback.format_exc())
+
+            self.metrics = {
+                'script_path': self.script_path,
+                'script_args': self.script_args,
+                'start_time': start_timestamp,
+                'end_time': end_timestamp,
+                'exit_code': -1,
+                'success': False,
+                'attempt_number': attempt_number,
+                'error': str(e),
+                'error_type': type(e).__name__,
+                'traceback': traceback.format_exc()
+            }
+
+            result = {
+                'stdout': '',
+                'stderr': str(e),
+                'returncode': -1,
+                'success': False,
+                'metrics': self.metrics
+            }
+
+        finally:
+            with self._active_process_lock:
+                self._active_process = None
+
             # NEW: Check alerts
             self.alert_manager.check_alerts(self.metrics)
-            
+
             # NEW: Save to history database
             if self.history_manager:
                 try:
@@ -6896,66 +6987,10 @@ class ScriptRunner:
                     self.logger.warning(f"Failed to save to history database: {e}")
 
             hook_context['result'] = result
-            hook_context['end_time'] = end_timestamp
+            hook_context['end_time'] = end_timestamp or datetime.now().isoformat()
             self.hooks.execute_post_hooks(hook_context)
 
-            return result
-
-        except subprocess.TimeoutExpired as e:
-            monitor.stop()
-            end_time = time.time()
-            execution_time = end_time - start_time
-
-            self.metrics = {
-                'script_path': self.script_path,
-                'script_args': self.script_args,
-                'start_time': start_timestamp,
-                'end_time': datetime.now().isoformat(),
-                'execution_time_seconds': round(execution_time, 4),
-                'exit_code': -1,
-                'success': False,
-                'attempt_number': attempt_number,
-                'timeout_seconds': self.timeout,
-                'timed_out': True,
-                'error': 'Script execution timed out',
-                **monitor.get_summary()
-            }
-
-            self.alert_manager.check_alerts(self.metrics)
-
-            return {
-                'stdout': e.stdout or '',
-                'stderr': e.stderr or '',
-                'returncode': -1,
-                'success': False,
-                'metrics': self.metrics
-            }
-
-        except Exception as e:
-            monitor.stop()
-            self.logger.error(f"Execution error: {e}")
-            self.logger.debug(traceback.format_exc())
-
-            self.metrics = {
-                'script_path': self.script_path,
-                'script_args': self.script_args,
-                'start_time': start_timestamp,
-                'end_time': datetime.now().isoformat(),
-                'exit_code': -1,
-                'success': False,
-                'attempt_number': attempt_number,
-                'error': str(e),
-                'error_type': type(e).__name__,
-                'traceback': traceback.format_exc()
-            }
-
-            return {
-                'stdout': '',
-                'stderr': str(e),
-                'returncode': -1,
-                'success': False,
-                'metrics': self.metrics
-            }
+        return result
 
     def _collect_resource_usage(self) -> Dict:
         resource_metrics = {}
