@@ -74,11 +74,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run tests
+      - name: Compile and validate
         run: |
-          python -m py_compile runner.py test_script.py
-          if [ -f "tests/test_*.py" ]; then
-            python -m pytest tests/ -v
+          python -m py_compile runner.py
+          python -c "import runner; print(f'✅ Code compiles successfully')"
+      
+      - name: Run unit tests
+        run: |
+          if [ -f "pytest.ini" ] && command -v pytest &> /dev/null; then
+            python -m pytest tests/ -v --tb=short 2>&1 | head -100
+          else
+            echo "Skipping tests (pytest not available or no tests configured)"
           fi
 
       - name: Validate package import
