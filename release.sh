@@ -728,7 +728,7 @@ cmd_validate() {
     # Check Python compilation
     print_step "Checking code quality..."
     local compile_output
-    if compile_output=$(python3 -m py_compile runner.py test_script.py 2>&1); then
+    if compile_output=$(python3 -m py_compile runner.py examples/sample_script.py 2>&1); then
         print_success "Compilation successful"
     else
         print_error "Python compilation failed:"

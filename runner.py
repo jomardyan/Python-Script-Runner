@@ -35,6 +35,7 @@ import argparse
 import time
 import json
 import os
+import stat
 import logging
 import traceback
 import smtplib
@@ -2888,12 +2889,13 @@ class PerformanceOptimizer:
 
 class ScheduledTask:
     """Represents a scheduled task"""
-    
+
     def __init__(self, task_id: str, script_path: str, schedule: Optional[str] = None,
                  cron_expr: Optional[str] = None, trigger_events: Optional[List[str]] = None,
-                 enabled: bool = True):
+                 enabled: bool = True, script_args: Optional[List[str]] = None,
+                 dependencies: Optional[List[str]] = None):
         """Initialize scheduled task
-        
+
         Args:
             task_id: Unique task identifier
             script_path: Path to script to execute
@@ -2901,6 +2903,8 @@ class ScheduledTask:
             cron_expr: Cron expression for complex schedules
             trigger_events: Event names that trigger execution
             enabled: Whether task is enabled
+            script_args: Arguments to pass to the script during execution
+            dependencies: Other task IDs that must complete successfully first
         """
         self.task_id = task_id
         self.script_path = script_path
@@ -2908,44 +2912,73 @@ class ScheduledTask:
         self.cron_expr = cron_expr
         self.trigger_events = trigger_events or []
         self.enabled = enabled
+        self.script_args = script_args or []
+        self.dependencies = dependencies or []
         self.last_run: Optional[datetime] = None
         self.next_run: Optional[datetime] = None
         self.run_count = 0
-        self.last_status = None
+        self.last_status: Optional[str] = None
+        self.last_error: Optional[str] = None
 
 
 class TaskScheduler:
     """Manages scheduled script execution and event-driven triggers"""
-    
-    def __init__(self, logger: Optional[logging.Logger] = None):
+
+    def __init__(self, logger: Optional[logging.Logger] = None, history_db: Optional[str] = None):
         """Initialize scheduler
-        
+
         Args:
             logger: Logger instance
+            history_db: Optional history database path passed to ScriptRunner
         """
         self.logger = logger or logging.getLogger(__name__)
         self.tasks = {}
         self.events = {}
-        self.triggered_tasks = []
-    
+        self.triggered_tasks: List[str] = []
+        self.history_db = history_db
+        self.execution_log: List[Dict[str, Any]] = []
+
     def add_scheduled_task(self, task_id: str, script_path: str,
-                          schedule: Optional[str] = None, cron_expr: Optional[str] = None) -> ScheduledTask:
+                          schedule: Optional[str] = None, cron_expr: Optional[str] = None,
+                          script_args: Optional[List[str]] = None,
+                          dependencies: Optional[List[str]] = None) -> ScheduledTask:
         """Add a scheduled task
-        
+
         Args:
             task_id: Unique identifier
             script_path: Script to run
             schedule: Simple schedule string
             cron_expr: Cron expression
-            
+            script_args: Arguments for the script
+            dependencies: List of prerequisite task IDs
+
         Returns:
             ScheduledTask object
         """
-        task = ScheduledTask(task_id, script_path, schedule, cron_expr)
+        task = ScheduledTask(task_id, script_path, schedule, cron_expr, script_args=script_args,
+                             dependencies=dependencies)
         self.tasks[task_id] = task
         self._calculate_next_run(task)
         self.logger.info(f"Added task '{task_id}': {script_path}")
         return task
+
+    def add_dependencies(self, task_id: str, dependencies: List[str]) -> bool:
+        """Register dependencies for an existing task.
+
+        Args:
+            task_id: Task that should wait on dependencies
+            dependencies: Other task IDs that must complete successfully
+
+        Returns:
+            bool: True if dependencies were added
+        """
+        if task_id not in self.tasks:
+            self.logger.error(f"Task '{task_id}' not found")
+            return False
+
+        self.tasks[task_id].dependencies = list(dependencies)
+        self.logger.info(f"Task '{task_id}' dependencies set: {', '.join(dependencies)}")
+        return True
     
     def add_event_trigger(self, task_id: str, event_name: str) -> bool:
         """Add event trigger for a task
@@ -2982,7 +3015,15 @@ class TaskScheduler:
         tasks = self.events.get(event_name, [])
         self.logger.info(f"Event '{event_name}' triggered: {len(tasks)} tasks")
         return tasks
-    
+
+    def _dependencies_satisfied(self, task: ScheduledTask) -> bool:
+        """Check whether all dependencies for a task are successful."""
+        for dep_id in task.dependencies:
+            dep = self.tasks.get(dep_id)
+            if not dep or dep.last_status != "success":
+                return False
+        return True
+
     def get_due_tasks(self) -> List[ScheduledTask]:
         """Get tasks that are due for execution
         
@@ -3015,6 +3056,89 @@ class TaskScheduler:
             task.run_count += 1
             self._calculate_next_run(task)
             self.logger.info(f"Task '{task_id}' executed: {status}")
+
+    def run_task(self, task_id: str, runner_factory: Optional[Callable[..., Any]] = None,
+                 runner_kwargs: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Execute a task immediately using the provided runner factory."""
+        if task_id not in self.tasks:
+            raise ValueError(f"Task '{task_id}' not found")
+
+        task = self.tasks[task_id]
+        runner_kwargs = runner_kwargs or {}
+        runner_factory = runner_factory or ScriptRunner
+
+        if not self._dependencies_satisfied(task):
+            self.logger.info(f"Task '{task_id}' skipped: waiting on dependencies")
+            return {"task_id": task_id, "status": "skipped", "reason": "dependencies_pending"}
+
+        try:
+            runner = runner_factory(
+                task.script_path,
+                script_args=task.script_args,
+                history_db=self.history_db,
+                **runner_kwargs,
+            )
+            execution = runner.run_script()
+            status = "success" if execution.get("returncode") == 0 else "failed"
+            error = execution.get("stderr") if status == "failed" else None
+        except Exception as exc:
+            execution = None
+            status = "failed"
+            error = str(exc)
+
+        task.last_error = error
+        self.mark_executed(task_id, status)
+
+        log_entry = {
+            "task_id": task_id,
+            "status": status,
+            "timestamp": datetime.now().isoformat(),
+            "error": error,
+            "next_run": task.next_run.isoformat() if task.next_run else None,
+        }
+        self.execution_log.append(log_entry)
+
+        if status != "success":
+            self.logger.error(f"Task '{task_id}' failed: {error}")
+        else:
+            self.logger.info(f"Task '{task_id}' completed successfully")
+
+        return {
+            "task_id": task_id,
+            "status": status,
+            "error": error,
+            "metrics": execution.get("metrics") if execution else None,
+        }
+
+    def run_due_tasks(self, runner_factory: Optional[Callable[..., Any]] = None,
+                      runner_kwargs: Optional[Dict[str, Any]] = None,
+                      stop_on_error: bool = False) -> List[Dict[str, Any]]:
+        """Execute all due tasks whose dependencies are satisfied."""
+        results: List[Dict[str, Any]] = []
+        pending = {task.task_id: task for task in self.get_due_tasks()}
+
+        runner_factory = runner_factory or ScriptRunner
+        runner_kwargs = runner_kwargs or {}
+
+        while pending:
+            progressed = False
+            for task_id, task in list(pending.items()):
+                if not self._dependencies_satisfied(task):
+                    continue
+
+                result = self.run_task(task_id, runner_factory=runner_factory, runner_kwargs=runner_kwargs)
+                results.append(result)
+                progressed = True
+                pending.pop(task_id, None)
+
+                if stop_on_error and result.get("status") != "success":
+                    return results
+
+            if not progressed:
+                self.logger.info("No further progress possible; remaining tasks waiting on dependencies")
+                break
+
+        return results
     
     def _calculate_next_run(self, task: ScheduledTask):
         """Calculate next run time for task
@@ -3045,6 +3169,14 @@ class TaskScheduler:
                         task.next_run = now + timedelta(seconds=amount)
             except Exception as e:
                 self.logger.error(f"Error parsing schedule '{task.schedule}': {e}")
+        elif task.cron_expr:
+            try:
+                from croniter import croniter  # type: ignore
+
+                iterator = croniter(task.cron_expr, now)
+                task.next_run = iterator.get_next(datetime)
+            except Exception as e:
+                self.logger.error(f"Error parsing cron expression '{task.cron_expr}': {e}")
         else:
             task.next_run = now + timedelta(hours=1)  # Default to 1 hour
     
@@ -3069,7 +3201,9 @@ class TaskScheduler:
             "next_run": task.next_run.isoformat() if task.next_run else None,
             "run_count": task.run_count,
             "last_status": task.last_status,
-            "triggers": task.trigger_events
+            "triggers": task.trigger_events,
+            "dependencies": task.dependencies,
+            "last_error": task.last_error,
         }
     
     def list_tasks(self) -> List[Dict]:
@@ -6278,6 +6412,7 @@ class ScriptRunner:
         self.max_output_lines = None
         self.hooks = ExecutionHook()
         self.monitor_interval = 0.1
+        self.config_file = config_file
         
         # UPDATED: Phase 2 retry config (replaces old retry_count and retry_delay)
         self.retry_config = RetryConfig()  # Default configuration
@@ -6291,8 +6426,10 @@ class ScriptRunner:
         # NEW: Phase 2 features
         self.enable_history = enable_history
         self.history_manager = None
+        self.history_db_path = None
         if enable_history:
             db_path = history_db or 'script_runner_history.db'
+            self.history_db_path = db_path
             self.history_manager = HistoryManager(db_path=db_path)
         
         # NEW: Trend Analysis (Phase 2)
@@ -6491,11 +6628,38 @@ class ScriptRunner:
         """
         if not os.path.isfile(self.script_path):
             raise FileNotFoundError(f"Script not found: {self.script_path}")
-        if not os.access(self.script_path, os.R_OK):
+
+        mode = os.stat(self.script_path).st_mode
+        readable = bool(mode & (stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH))
+        if not readable:
             raise PermissionError(f"Script not readable: {self.script_path}")
         if not self.script_path.endswith('.py'):
             self.logger.warning(f"Script does not have .py extension: {self.script_path}")
         return True
+
+    def get_execution_plan(self) -> Dict[str, Any]:
+        """Return a structured view of how the script will be executed.
+
+        This helper is used by the CLI ``--dry-run`` flag to show what the
+        runner would do without actually launching the subprocess. It surfaces
+        key configuration such as the script path, arguments, timeouts, logging
+        level, configuration file, and history database state.
+
+        Returns:
+            Dict[str, Any]: Execution summary including paths and toggles.
+        """
+        return {
+            'script_path': os.path.abspath(self.script_path),
+            'script_args': list(self.script_args),
+            'timeout': self.timeout,
+            'log_level': logging.getLevelName(self.logger.level),
+            'config_file': os.path.abspath(self.config_file) if self.config_file else None,
+            'history_enabled': self.enable_history,
+            'history_db': os.path.abspath(self.history_db_path) if self.history_db_path else None,
+            'monitor_interval': self.monitor_interval,
+            'retry_strategy': self.retry_config.strategy,
+            'max_attempts': self.retry_config.max_attempts,
+        }
 
     def run_script(self, retry_on_failure: bool = False) -> Dict:
         """Execute script with advanced retry and monitoring capabilities.
@@ -6592,18 +6756,7 @@ class ScriptRunner:
                     # Do not retry fundamental file/permission errors; return failure result
                     if isinstance(e, (FileNotFoundError, PermissionError)):
                         self.logger.error(f"Execution error (non-retryable): {e}")
-                        return {
-                            'stdout': '',
-                            'stderr': str(e),
-                            'returncode': -1,
-                            'success': False,
-                            'attempt_number': attempt,
-                            'metrics': {
-                                'error': str(e),
-                                'error_type': type(e).__name__,
-                                'attempt_number': attempt
-                            }
-                        }
+                        raise
                     
                     if should_retry:
                         delay = self.retry_config.get_delay(attempt - 1)
@@ -7021,6 +7174,129 @@ class ScriptRunner:
             self.logger.warning(f"Cost estimation failed: {e}")
             return None
 
+    # ------------------------------------------------------------------
+    # General-purpose helpers derived from the previous v7 enhancement
+    # module. These helpers make the advanced features directly
+    # accessible from ScriptRunner without requiring a separate wrapper.
+    # ------------------------------------------------------------------
+    def pre_execution_security_scan(
+        self, script_path: Optional[str] = None, block_on_critical: bool = False
+    ) -> Dict[str, Any]:
+        """Run code analysis before execution.
+
+        Args:
+            script_path: Optional explicit script path; defaults to runner script.
+            block_on_critical: Whether to mark the scan as failed when critical
+                findings are present.
+
+        Returns:
+            Dict[str, Any]: Scan outcome including findings and block status.
+        """
+        target = script_path or self.script_path
+
+        if not self.enable_code_analysis or not self.code_analyzer:
+            return {'success': True, 'findings': []}
+
+        try:
+            result = self.code_analyzer.analyze(target)
+            critical_findings = getattr(result, 'critical_findings', [])
+            findings = getattr(result, 'findings', [])
+
+            if critical_findings and block_on_critical:
+                self.logger.error(f"Critical security findings detected in {target}")
+                return {
+                    'success': False,
+                    'findings': [f.to_dict() if hasattr(f, 'to_dict') else f for f in critical_findings],
+                    'blocked': True,
+                }
+
+            return {
+                'success': True,
+                'findings': [f.to_dict() if hasattr(f, 'to_dict') else f for f in findings],
+                'critical_count': len(critical_findings),
+            }
+        except Exception as e:
+            self.logger.error(f"Security scan error: {e}")
+            return {'success': False, 'error': str(e)}
+
+    def scan_dependencies(self, requirements_file: str = 'requirements.txt') -> Dict[str, Any]:
+        """Scan dependencies for vulnerabilities using the configured scanner."""
+        if not self.enable_dependency_scanning or not self.dependency_scanner:
+            return {'success': True, 'vulnerabilities': []}
+
+        if not os.path.exists(requirements_file):
+            return {'success': False, 'error': f'{requirements_file} not found'}
+
+        try:
+            result = self.dependency_scanner.scan_requirements(requirements_file)
+            vulnerabilities = getattr(result, 'vulnerabilities', [])
+            return {
+                'success': getattr(result, 'success', True),
+                'vulnerability_count': len(vulnerabilities),
+                'vulnerabilities': [v.to_dict() if hasattr(v, 'to_dict') else v for v in vulnerabilities],
+                'sbom': getattr(result, 'sbom', None),
+            }
+        except Exception as e:
+            self.logger.error(f"Dependency scan error: {e}")
+            return {'success': False, 'error': str(e)}
+
+    def scan_secrets(self, path: str = '.') -> Dict[str, Any]:
+        """Scan a path for hardcoded secrets."""
+        if not self.enable_secret_scanning or not self.secret_scanner:
+            return {'success': True, 'secrets': []}
+
+        try:
+            if os.path.isfile(path):
+                result = self.secret_scanner.scan_file(path)
+            else:
+                result = self.secret_scanner.scan_directory(path)
+
+            secrets = getattr(result, 'secrets', [])
+            return {
+                'success': getattr(result, 'success', True),
+                'has_secrets': getattr(result, 'has_secrets', bool(secrets)),
+                'secret_count': len(secrets),
+                'secrets': [s.to_dict() if hasattr(s, 'to_dict') else s for s in secrets],
+            }
+        except Exception as e:
+            self.logger.error(f"Secret scan error: {e}")
+            return {'success': False, 'error': str(e)}
+
+    def start_tracing_span(self, span_name: str):
+        """Start a distributed tracing span using the configured tracer."""
+        if self.tracing_manager:
+            return self.tracing_manager.trace_span(span_name)
+
+        from contextlib import contextmanager
+
+        @contextmanager
+        def noop():
+            yield None
+
+        return noop()
+
+    def start_cost_tracking(self) -> None:
+        """Begin monitoring execution costs if enabled."""
+        if self.cost_tracker:
+            self.cost_tracker.start_monitoring()
+            self.logger.info("Cost tracking started")
+
+    def stop_cost_tracking(self) -> Dict[str, Any]:
+        """Stop cost tracking and return a summary report."""
+        if not self.cost_tracker:
+            return {}
+
+        try:
+            report = self.cost_tracker.get_cost_report()
+            return {
+                'total_estimated_cost_usd': getattr(report, 'total_estimated_cost_usd', 0),
+                'cost_by_provider': getattr(report, 'cost_by_provider', {}),
+                'cost_by_service': getattr(report, 'cost_by_service', {}),
+            }
+        except Exception as e:
+            self.logger.error(f"Cost tracking error: {e}")
+            return {}
+
     def start_execution_tracing(self) -> Optional[Any]:
         """Start OpenTelemetry tracing for script execution.
         
@@ -7148,8 +7424,10 @@ Examples:
     parser.add_argument('script', nargs='?', help='Python script to execute')
     parser.add_argument('script_args', nargs='*', help='Arguments to pass to the script')
     parser.add_argument('--timeout', type=int, default=None, help='Execution timeout in seconds')
-    parser.add_argument('--log-level', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'], 
+    parser.add_argument('--log-level', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
                        default='INFO', help='Logging level')
+    parser.add_argument('--dry-run', action='store_true',
+                       help='Validate the script and show execution plan without running it')
     parser.add_argument('--config', help='Configuration file (YAML)')
     parser.add_argument('--monitor-interval', type=float, default=0.1, 
                        help='Process monitor sampling interval (seconds)')
@@ -7701,6 +7979,8 @@ Examples:
                         print(f"   Enabled: {task['enabled']}")
                         print(f"   Runs: {task['run_count']}")
                         print(f"   Last status: {task['last_status']}")
+                        if task.get('dependencies'):
+                            print(f"   Depends on: {', '.join(task['dependencies'])}")
                         if task['triggers']:
                             print(f"   Triggers: {', '.join(task['triggers'])}")
                 else:
@@ -8478,6 +8758,19 @@ Examples:
             history_db=args.history_db,
             enable_history=not args.disable_history
         )
+
+        if args.dry_run:
+            try:
+                runner.validate_script()
+            except Exception as exc:
+                logging.error(f"Dry-run validation failed: {exc}")
+                return 1
+
+            plan = runner.get_execution_plan()
+            print("\nDRY-RUN: Execution plan (no script executed)")
+            for key, value in plan.items():
+                print(f"  {key}: {value}")
+            return 0
 
         runner.monitor_interval = args.monitor_interval
         runner.suppress_warnings = args.suppress_warnings

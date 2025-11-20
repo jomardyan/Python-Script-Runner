@@ -140,10 +140,9 @@ class TestScriptExecution:
     def test_script_not_found(self):
         """Test executing non-existent script"""
         runner = ScriptRunner('/non/existent/script.py')
-        
-        # Should handle gracefully
-        result = runner.run_script()
-        assert result['success'] is False or result['returncode'] != 0
+
+        with pytest.raises(FileNotFoundError):
+            runner.run_script()
 
 
 class TestMetricsCollection:
@@ -400,34 +399,40 @@ class TestErrorHandling:
 
 class TestV7FeatureIntegration:
     """Test integration with v7 features"""
-    
-    def test_v7_enhancement_available(self, tmp_path):
-        """Test v7 enhancement loading"""
-        try:
-            from runners.v7_enhancement import enhance_script_runner
-            script_file = tmp_path / "test.py"
-            script_file.write_text("print('test')\nexit(0)")
-            
-            runner = ScriptRunner(str(script_file))
-            # Should be able to enhance
-            assert runner is not None
-        except ImportError:
-            pytest.skip("v7 features not available")
-    
-    @patch('runners.v7_enhancement.V7ScriptRunnerEnhancer')
-    def test_v7_security_scanning(self, mock_enhancer, tmp_path):
-        """Test v7 security scanning integration"""
+
+    def test_v7_features_exposed_directly(self, tmp_path):
+        """Runner should expose v7 helpers without a separate enhancer."""
         script_file = tmp_path / "test.py"
         script_file.write_text("print('test')\nexit(0)")
-        
+
         runner = ScriptRunner(str(script_file))
-        
-        # Mock enhancer
-        enhancer_instance = Mock()
-        mock_enhancer.return_value = enhancer_instance
-        
-        # Should be able to use enhancer
-        assert runner is not None
+
+        assert hasattr(runner, 'start_tracing_span')
+        assert hasattr(runner, 'start_cost_tracking')
+        assert runner.pre_execution_security_scan()['success'] is True
+
+    def test_pre_execution_security_scan_blocks_on_critical(self, tmp_path):
+        """Security scan helper should block when critical findings are present."""
+        script_file = tmp_path / "test.py"
+        script_file.write_text("print('test')\nexit(0)")
+
+        runner = ScriptRunner(str(script_file))
+
+        class FakeFinding:
+            def to_dict(self):
+                return {'id': 'C1'}
+
+        class FakeResult:
+            findings = [FakeFinding()]
+            critical_findings = [FakeFinding()]
+
+        runner.code_analyzer = Mock(analyze=Mock(return_value=FakeResult()))
+        runner.enable_code_analysis = True
+
+        scan_result = runner.pre_execution_security_scan(block_on_critical=True)
+
+        assert scan_result['success'] is False
+        assert scan_result['blocked'] is True
 
 
 class TestIntegration:

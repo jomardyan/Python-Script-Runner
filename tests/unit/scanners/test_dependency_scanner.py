@@ -31,7 +31,7 @@ class TestVulnerabilityClass:
         )
         assert vuln.id == 'CVE-2021-12345'
         assert vuln.package_name == 'requests'
-        assert vuln.severity == 'HIGH'
+        assert vuln.severity == VulnerabilitySeverity.HIGH
 
 
 class TestSafetyScanner:

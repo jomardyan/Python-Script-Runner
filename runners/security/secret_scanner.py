@@ -476,10 +476,20 @@ class SecretManagerAdapter:
 class SecretScanner:
     """Combined secret scanning and management."""
 
-    def __init__(self):
+    def __init__(self, vault_type: str | None = None, vault_address: str | None = None, **_: Any):
         """Initialize secret scanner."""
         self.logger = logging.getLogger(__name__)
         self.scanner = DetectSecretsScanner()
+        self.vault_type = vault_type
+        self.vault_address = vault_address
+
+    def scan_file(self, file_path: str) -> ScanResult:
+        """Proxy single-file scans to the underlying detector."""
+        return self.scanner.scan_file(file_path)
+
+    def scan_directory(self, directory: str) -> ScanResult:
+        """Proxy directory scans to the underlying detector."""
+        return self.scanner.scan_directory(directory)
 
     def scan(self, path: str) -> ScanResult:
         """

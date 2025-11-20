@@ -9,9 +9,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 try:
     from runners.tracers.otel_manager import (
-        TracingManager, ExporterType, PropagatorType, ExporterConfig, SamplingConfig
+        TracingManager, ExporterType, PropagatorType, ExporterConfig, SamplingConfig, OTEL_AVAILABLE as _OTEL_AVAILABLE
     )
-    OTEL_AVAILABLE = True
+    OTEL_AVAILABLE = bool(_OTEL_AVAILABLE)
 except ImportError:
     OTEL_AVAILABLE = False
 

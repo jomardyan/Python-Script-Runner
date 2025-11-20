@@ -57,7 +57,7 @@ def test_database():
     cursor.execute("""INSERT INTO executions 
         (script_path, script_args, start_time, end_time, execution_time_seconds, exit_code, success, stdout_lines, stderr_lines, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", 
-        ('test_script.py', '', now, now, 1.5, 0, True, 10, 0, now))
+        ('sample_script.py', '', now, now, 1.5, 0, True, 10, 0, now))
     exec_id = cursor.lastrowid
     
     cursor.execute("""INSERT INTO metrics (execution_id, metric_name, metric_value)

@@ -15,6 +15,7 @@ import sys
 import tempfile
 import json
 import time
+import subprocess
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -66,15 +67,32 @@ exit(0)
         """Test that history database is properly created"""
         script_file = tmp_path / "test_db.py"
         script_file.write_text("print('test'); exit(0)")
-        
+
         db_file = tmp_path / "test.db"
         runner = ScriptRunner(str(script_file), enable_history=True)
-        
+
         result = runner.run_script()
-        
+
         # Check if metrics are collected
         assert 'metrics' in result
         assert len(result['metrics']) > 0
+
+    def test_cli_dry_run_shows_execution_plan(self, tmp_path):
+        """Ensure CLI dry-run validates script and prints plan without running it."""
+        script_file = tmp_path / "dry_run_target.py"
+        script_file.write_text("print('should not run during dry-run')")
+
+        result = subprocess.run(
+            [sys.executable, "-m", "runner", str(script_file), "--dry-run", "--timeout", "3"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode == 0
+        assert "DRY-RUN: Execution plan" in result.stdout
+        assert "dry_run_target.py" in result.stdout
+        assert "timeout: 3" in result.stdout
 
 
 @pytest.mark.integration
