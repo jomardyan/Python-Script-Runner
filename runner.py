@@ -2888,12 +2888,13 @@ class PerformanceOptimizer:
 
 class ScheduledTask:
     """Represents a scheduled task"""
-    
+
     def __init__(self, task_id: str, script_path: str, schedule: Optional[str] = None,
                  cron_expr: Optional[str] = None, trigger_events: Optional[List[str]] = None,
-                 enabled: bool = True):
+                 enabled: bool = True, script_args: Optional[List[str]] = None,
+                 dependencies: Optional[List[str]] = None):
         """Initialize scheduled task
-        
+
         Args:
             task_id: Unique task identifier
             script_path: Path to script to execute
@@ -2901,6 +2902,8 @@ class ScheduledTask:
             cron_expr: Cron expression for complex schedules
             trigger_events: Event names that trigger execution
             enabled: Whether task is enabled
+            script_args: Arguments to pass to the script during execution
+            dependencies: Other task IDs that must complete successfully first
         """
         self.task_id = task_id
         self.script_path = script_path
@@ -2908,44 +2911,73 @@ class ScheduledTask:
         self.cron_expr = cron_expr
         self.trigger_events = trigger_events or []
         self.enabled = enabled
+        self.script_args = script_args or []
+        self.dependencies = dependencies or []
         self.last_run: Optional[datetime] = None
         self.next_run: Optional[datetime] = None
         self.run_count = 0
-        self.last_status = None
+        self.last_status: Optional[str] = None
+        self.last_error: Optional[str] = None
 
 
 class TaskScheduler:
     """Manages scheduled script execution and event-driven triggers"""
-    
-    def __init__(self, logger: Optional[logging.Logger] = None):
+
+    def __init__(self, logger: Optional[logging.Logger] = None, history_db: Optional[str] = None):
         """Initialize scheduler
-        
+
         Args:
             logger: Logger instance
+            history_db: Optional history database path passed to ScriptRunner
         """
         self.logger = logger or logging.getLogger(__name__)
         self.tasks = {}
         self.events = {}
-        self.triggered_tasks = []
-    
+        self.triggered_tasks: List[str] = []
+        self.history_db = history_db
+        self.execution_log: List[Dict[str, Any]] = []
+
     def add_scheduled_task(self, task_id: str, script_path: str,
-                          schedule: Optional[str] = None, cron_expr: Optional[str] = None) -> ScheduledTask:
+                          schedule: Optional[str] = None, cron_expr: Optional[str] = None,
+                          script_args: Optional[List[str]] = None,
+                          dependencies: Optional[List[str]] = None) -> ScheduledTask:
         """Add a scheduled task
-        
+
         Args:
             task_id: Unique identifier
             script_path: Script to run
             schedule: Simple schedule string
             cron_expr: Cron expression
-            
+            script_args: Arguments for the script
+            dependencies: List of prerequisite task IDs
+
         Returns:
             ScheduledTask object
         """
-        task = ScheduledTask(task_id, script_path, schedule, cron_expr)
+        task = ScheduledTask(task_id, script_path, schedule, cron_expr, script_args=script_args,
+                             dependencies=dependencies)
         self.tasks[task_id] = task
         self._calculate_next_run(task)
         self.logger.info(f"Added task '{task_id}': {script_path}")
         return task
+
+    def add_dependencies(self, task_id: str, dependencies: List[str]) -> bool:
+        """Register dependencies for an existing task.
+
+        Args:
+            task_id: Task that should wait on dependencies
+            dependencies: Other task IDs that must complete successfully
+
+        Returns:
+            bool: True if dependencies were added
+        """
+        if task_id not in self.tasks:
+            self.logger.error(f"Task '{task_id}' not found")
+            return False
+
+        self.tasks[task_id].dependencies = list(dependencies)
+        self.logger.info(f"Task '{task_id}' dependencies set: {', '.join(dependencies)}")
+        return True
     
     def add_event_trigger(self, task_id: str, event_name: str) -> bool:
         """Add event trigger for a task
@@ -2982,7 +3014,15 @@ class TaskScheduler:
         tasks = self.events.get(event_name, [])
         self.logger.info(f"Event '{event_name}' triggered: {len(tasks)} tasks")
         return tasks
-    
+
+    def _dependencies_satisfied(self, task: ScheduledTask) -> bool:
+        """Check whether all dependencies for a task are successful."""
+        for dep_id in task.dependencies:
+            dep = self.tasks.get(dep_id)
+            if not dep or dep.last_status != "success":
+                return False
+        return True
+
     def get_due_tasks(self) -> List[ScheduledTask]:
         """Get tasks that are due for execution
         
@@ -3015,6 +3055,89 @@ class TaskScheduler:
             task.run_count += 1
             self._calculate_next_run(task)
             self.logger.info(f"Task '{task_id}' executed: {status}")
+
+    def run_task(self, task_id: str, runner_factory: Optional[Callable[..., Any]] = None,
+                 runner_kwargs: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Execute a task immediately using the provided runner factory."""
+        if task_id not in self.tasks:
+            raise ValueError(f"Task '{task_id}' not found")
+
+        task = self.tasks[task_id]
+        runner_kwargs = runner_kwargs or {}
+        runner_factory = runner_factory or ScriptRunner
+
+        if not self._dependencies_satisfied(task):
+            self.logger.info(f"Task '{task_id}' skipped: waiting on dependencies")
+            return {"task_id": task_id, "status": "skipped", "reason": "dependencies_pending"}
+
+        try:
+            runner = runner_factory(
+                task.script_path,
+                script_args=task.script_args,
+                history_db=self.history_db,
+                **runner_kwargs,
+            )
+            execution = runner.run_script()
+            status = "success" if execution.get("returncode") == 0 else "failed"
+            error = execution.get("stderr") if status == "failed" else None
+        except Exception as exc:
+            execution = None
+            status = "failed"
+            error = str(exc)
+
+        task.last_error = error
+        self.mark_executed(task_id, status)
+
+        log_entry = {
+            "task_id": task_id,
+            "status": status,
+            "timestamp": datetime.now().isoformat(),
+            "error": error,
+            "next_run": task.next_run.isoformat() if task.next_run else None,
+        }
+        self.execution_log.append(log_entry)
+
+        if status != "success":
+            self.logger.error(f"Task '{task_id}' failed: {error}")
+        else:
+            self.logger.info(f"Task '{task_id}' completed successfully")
+
+        return {
+            "task_id": task_id,
+            "status": status,
+            "error": error,
+            "metrics": execution.get("metrics") if execution else None,
+        }
+
+    def run_due_tasks(self, runner_factory: Optional[Callable[..., Any]] = None,
+                      runner_kwargs: Optional[Dict[str, Any]] = None,
+                      stop_on_error: bool = False) -> List[Dict[str, Any]]:
+        """Execute all due tasks whose dependencies are satisfied."""
+        results: List[Dict[str, Any]] = []
+        pending = {task.task_id: task for task in self.get_due_tasks()}
+
+        runner_factory = runner_factory or ScriptRunner
+        runner_kwargs = runner_kwargs or {}
+
+        while pending:
+            progressed = False
+            for task_id, task in list(pending.items()):
+                if not self._dependencies_satisfied(task):
+                    continue
+
+                result = self.run_task(task_id, runner_factory=runner_factory, runner_kwargs=runner_kwargs)
+                results.append(result)
+                progressed = True
+                pending.pop(task_id, None)
+
+                if stop_on_error and result.get("status") != "success":
+                    return results
+
+            if not progressed:
+                self.logger.info("No further progress possible; remaining tasks waiting on dependencies")
+                break
+
+        return results
     
     def _calculate_next_run(self, task: ScheduledTask):
         """Calculate next run time for task
@@ -3045,6 +3168,14 @@ class TaskScheduler:
                         task.next_run = now + timedelta(seconds=amount)
             except Exception as e:
                 self.logger.error(f"Error parsing schedule '{task.schedule}': {e}")
+        elif task.cron_expr:
+            try:
+                from croniter import croniter  # type: ignore
+
+                iterator = croniter(task.cron_expr, now)
+                task.next_run = iterator.get_next(datetime)
+            except Exception as e:
+                self.logger.error(f"Error parsing cron expression '{task.cron_expr}': {e}")
         else:
             task.next_run = now + timedelta(hours=1)  # Default to 1 hour
     
@@ -3069,7 +3200,9 @@ class TaskScheduler:
             "next_run": task.next_run.isoformat() if task.next_run else None,
             "run_count": task.run_count,
             "last_status": task.last_status,
-            "triggers": task.trigger_events
+            "triggers": task.trigger_events,
+            "dependencies": task.dependencies,
+            "last_error": task.last_error,
         }
     
     def list_tasks(self) -> List[Dict]:
@@ -7853,6 +7986,8 @@ Examples:
                         print(f"   Enabled: {task['enabled']}")
                         print(f"   Runs: {task['run_count']}")
                         print(f"   Last status: {task['last_status']}")
+                        if task.get('dependencies'):
+                            print(f"   Depends on: {', '.join(task['dependencies'])}")
                         if task['triggers']:
                             print(f"   Triggers: {', '.join(task['triggers'])}")
                 else:
