@@ -108,7 +108,7 @@ class TestPathValidation:
 
     def test_symlink_rejected(self, tmp_path):
         """Symlinks must be rejected even if they point to a valid .py file."""
-        from WEBAPI.api import _validate_script_path, ALLOWED_SCRIPT_ROOT
+        from WEBAPI.api import _validate_script_path
         from fastapi import HTTPException
 
         # Create a real .py file and a symlink to it
@@ -117,11 +117,11 @@ class TestPathValidation:
         link = tmp_path / "link.py"
         link.symlink_to(real_file)
 
-        # The symlink check happens after resolve(), so we need the resolved
-        # path to be within the allowed root.  Since it might not be, we
-        # just verify that either a symlink or allowed-root error is raised.
-        with pytest.raises(HTTPException):
+        # The symlink check happens before resolve(), so the symlink is
+        # detected and rejected with a clear error message.
+        with pytest.raises(HTTPException) as exc_info:
             _validate_script_path(str(link))
+        assert exc_info.value.status_code == 400
 
 
 class TestEnvVarFiltering:

@@ -366,7 +366,6 @@ def _execute_run(run_id: str, payload: RunRequest, cancel_event: threading.Event
 
         stdout = ""
         stderr = ""
-        _MAX_OUTPUT_SIZE = 10 * 1024 * 1024  # 10 MB
         if stdout_path.exists():
             stdout = stdout_path.read_text(errors="replace")[:_MAX_OUTPUT_SIZE]
         if stderr_path.exists():
@@ -438,9 +437,10 @@ def _execute_run(run_id: str, payload: RunRequest, cancel_event: threading.Event
 def _validate_script_path(path_str: str) -> Path:
     if '\x00' in path_str:
         raise HTTPException(status_code=400, detail="Invalid script path")
-    candidate = Path(path_str).expanduser().resolve()
-    if candidate.is_symlink():
+    raw_path = Path(path_str).expanduser()
+    if raw_path.is_symlink():
         raise HTTPException(status_code=400, detail="Symlinks are not allowed")
+    candidate = raw_path.resolve()
     if not candidate.is_file():
         raise HTTPException(status_code=400, detail="Script path must point to an existing file")
     try:
@@ -457,6 +457,9 @@ _DANGEROUS_ENV_VARS = frozenset({
     "PATH", "LD_PRELOAD", "LD_LIBRARY_PATH", "PYTHONPATH",
     "DYLD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES",
 })
+
+# Maximum size (in bytes) for captured stdout/stderr to prevent memory exhaustion.
+_MAX_OUTPUT_SIZE = 10 * 1024 * 1024  # 10 MB
 
 
 def _validate_payload(payload: RunRequest) -> RunRequest:
