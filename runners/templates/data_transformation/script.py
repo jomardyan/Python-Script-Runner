@@ -121,7 +121,7 @@ class DataTransformer:
                 if self.df[col].dtype == 'object':
                     try:
                         self.df[col] = pd.to_numeric(self.df[col], errors='coerce')
-                    except:
+                    except (ValueError, TypeError):
                         pass
             
             logger.info("Data cleaning completed")
@@ -151,7 +151,7 @@ class DataTransformer:
                     self.df['timestamp'] = pd.to_datetime(self.df['timestamp'])
                     self.df['date'] = self.df['timestamp'].dt.date
                     self.metrics['transformations_applied'].append("extract_date_from_timestamp")
-                except:
+                except (ValueError, TypeError):
                     pass
             
             # 3. Text transformations
