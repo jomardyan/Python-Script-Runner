@@ -26,6 +26,7 @@ __all__ = [
     "AlertManager",
     "CICDIntegration",
     "AdvancedProfiler",
+    "ExecutionVisualizer",
     "main",
 ]
 
@@ -6163,6 +6164,193 @@ class ExecutionHook:
                 logging.warning(f"Post-hook failed: {e}")
 
 
+class ExecutionVisualizer:
+    """Visualizer for script execution flow and orchestration steps.
+
+    Provides real-time visualization of script execution orchestration, displaying
+    the complete execution pipeline including initialization, pre-hooks, monitoring,
+    execution, metrics collection, alerts, and post-hooks.
+
+    This class enables users to understand and debug the execution flow by showing
+    each stage of the orchestration process with clear visual markers and timing.
+
+    Attributes:
+        enabled (bool): Whether visualization is enabled
+        start_time (float): Timestamp when visualization started
+        step_count (int): Counter for execution steps
+
+    Example:
+        >>> visualizer = ExecutionVisualizer(enabled=True)
+        >>> visualizer.show_header("my_script.py")
+        >>> visualizer.show_step("Initializing", "Setting up environment")
+        >>> visualizer.show_footer(execution_time=1.234, success=True)
+    """
+
+    def __init__(self, enabled: bool = False):
+        """Initialize the execution visualizer.
+
+        Args:
+            enabled (bool): Enable or disable visualization output. Default: False
+        """
+        self.enabled = enabled
+        self.start_time = None
+        self.step_count = 0
+
+    def show_header(self, script_path: str, script_args: Optional[List[str]] = None,
+                    attempt: int = 1) -> None:
+        """Display execution flow header.
+
+        Args:
+            script_path (str): Path to script being executed
+            script_args (List[str], optional): Arguments passed to script
+            attempt (int): Execution attempt number. Default: 1
+        """
+        if not self.enabled:
+            return
+
+        self.start_time = time.time()
+        self.step_count = 0
+
+        print("\n" + "=" * 80)
+        print("SCRIPT EXECUTION FLOW VISUALIZATION")
+        print("=" * 80)
+        print(f"Script: {script_path}")
+        if script_args:
+            print(f"Arguments: {' '.join(script_args)}")
+        print(f"Attempt: #{attempt}")
+        print(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print("=" * 80 + "\n")
+
+    def show_step(self, stage: str, description: str, status: str = "running",
+                  details: Optional[Dict] = None) -> None:
+        """Display a single execution step.
+
+        Args:
+            stage (str): Name of execution stage (e.g., "Pre-hooks", "Monitoring")
+            description (str): Description of what's happening
+            status (str): Status indicator ("running", "done", "skip", "error"). Default: "running"
+            details (Dict, optional): Additional details to display
+        """
+        if not self.enabled:
+            return
+
+        self.step_count += 1
+
+        # Status symbols
+        symbols = {
+            "running": "⏳",
+            "done": "✓",
+            "skip": "⊘",
+            "error": "✗"
+        }
+        symbol = symbols.get(status, "•")
+
+        # Calculate elapsed time
+        elapsed = time.time() - self.start_time if self.start_time else 0
+
+        print(f"[{elapsed:>6.2f}s] {symbol} Step {self.step_count}: {stage}")
+        print(f"           └─ {description}")
+
+        if details:
+            for key, value in details.items():
+                print(f"              • {key}: {value}")
+        print()
+
+    def show_subprocess_start(self, cmd: List[str], pid: Optional[int] = None) -> None:
+        """Display subprocess launch information.
+
+        Args:
+            cmd (List[str]): Command being executed
+            pid (int, optional): Process ID of subprocess
+        """
+        if not self.enabled:
+            return
+
+        self.step_count += 1
+        elapsed = time.time() - self.start_time if self.start_time else 0
+
+        print(f"[{elapsed:>6.2f}s] 🚀 Step {self.step_count}: Subprocess Launch")
+        print(f"           └─ Command: {' '.join(cmd)}")
+        if pid:
+            print(f"              • Process ID: {pid}")
+        print()
+
+    def show_monitoring_update(self, cpu_percent: float, memory_mb: float,
+                              samples: int) -> None:
+        """Display real-time monitoring information.
+
+        Args:
+            cpu_percent (float): Current CPU usage percentage
+            memory_mb (float): Current memory usage in MB
+            samples (int): Number of samples collected so far
+        """
+        if not self.enabled:
+            return
+
+        elapsed = time.time() - self.start_time if self.start_time else 0
+        print(f"\r[{elapsed:>6.2f}s] 📊 Monitoring: CPU={cpu_percent:.1f}% | "
+              f"Memory={memory_mb:.1f}MB | Samples={samples}", end='', flush=True)
+
+    def show_metrics_summary(self, metrics: Dict) -> None:
+        """Display collected metrics summary.
+
+        Args:
+            metrics (Dict): Metrics dictionary with execution statistics
+        """
+        if not self.enabled:
+            return
+
+        print()  # New line after monitoring updates
+        self.step_count += 1
+        elapsed = time.time() - self.start_time if self.start_time else 0
+
+        print(f"\n[{elapsed:>6.2f}s] 📈 Step {self.step_count}: Metrics Collection Complete")
+        print(f"           └─ Collected {len(metrics)} metrics")
+
+        # Show key metrics
+        key_metrics = {
+            'execution_time_seconds': 'Execution Time',
+            'cpu_max': 'Peak CPU %',
+            'cpu_avg': 'Average CPU %',
+            'memory_max_mb': 'Peak Memory (MB)',
+            'memory_avg_mb': 'Average Memory (MB)',
+            'exit_code': 'Exit Code',
+        }
+
+        for metric_key, label in key_metrics.items():
+            if metric_key in metrics:
+                value = metrics[metric_key]
+                if isinstance(value, float):
+                    print(f"              • {label}: {value:.2f}")
+                else:
+                    print(f"              • {label}: {value}")
+        print()
+
+    def show_footer(self, execution_time: float, success: bool,
+                    returncode: int = 0) -> None:
+        """Display execution flow footer.
+
+        Args:
+            execution_time (float): Total execution time in seconds
+            success (bool): Whether execution succeeded
+            returncode (int): Exit code from script. Default: 0
+        """
+        if not self.enabled:
+            return
+
+        status_symbol = "✓" if success else "✗"
+        status_text = "SUCCESS" if success else "FAILED"
+
+        print("=" * 80)
+        print(f"EXECUTION {status_text} {status_symbol}")
+        print("=" * 80)
+        print(f"Total Time: {execution_time:.4f}s")
+        print(f"Exit Code: {returncode}")
+        print(f"Steps Completed: {self.step_count}")
+        print(f"Ended: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print("=" * 80 + "\n")
+
+
 class ProcessMonitor:
     """Monitor child process resource usage during execution with adaptive sampling.
     
@@ -6413,6 +6601,9 @@ class ScriptRunner:
         self.hooks = ExecutionHook()
         self.monitor_interval = 0.1
         self.config_file = config_file
+
+        # Execution visualization
+        self.visualizer = ExecutionVisualizer(enabled=False)
         
         # UPDATED: Phase 2 retry config (replaces old retry_count and retry_delay)
         self.retry_config = RetryConfig()  # Default configuration
@@ -6811,10 +7002,19 @@ class ScriptRunner:
                 self._active_process = None
 
     def _execute_script(self, attempt_number: int = 1) -> Dict:
+        # Show visualization header
+        self.visualizer.show_header(self.script_path, self.script_args, attempt_number)
+
+        self.visualizer.show_step("Validation", "Validating script path and permissions", "running")
         self.validate_script()
+        self.visualizer.show_step("Validation", "Script validated successfully", "done")
 
         cmd = [sys.executable, self.script_path] + self.script_args
+
+        self.visualizer.show_step("System Metrics", "Collecting initial system metrics", "running")
         start_metrics = self.collect_system_metrics_start()
+        self.visualizer.show_step("System Metrics", "Initial metrics collected", "done")
+
         start_time = time.time()
         start_timestamp = datetime.now().isoformat()
 
@@ -6823,18 +7023,31 @@ class ScriptRunner:
             'attempt': attempt_number,
             'start_time': start_timestamp
         }
-        self.hooks.execute_pre_hooks(hook_context)
 
+        # Execute pre-hooks
+        if self.hooks.pre_execution_hooks:
+            self.visualizer.show_step("Pre-Hooks", f"Executing {len(self.hooks.pre_execution_hooks)} pre-execution hook(s)", "running")
+            self.hooks.execute_pre_hooks(hook_context)
+            self.visualizer.show_step("Pre-Hooks", "Pre-execution hooks completed", "done")
+        else:
+            self.visualizer.show_step("Pre-Hooks", "No pre-execution hooks registered", "skip")
+
+        self.visualizer.show_step("Environment", "Setting up execution environment", "running")
         env = os.environ.copy()
         env['SCRIPT_RUNNER_ACTIVE'] = '1'
         env['SCRIPT_RUNNER_ATTEMPT'] = str(attempt_number)
+        self.visualizer.show_step("Environment", "Environment variables configured", "done")
 
+        self.visualizer.show_step("Process Monitor", f"Initializing process monitor (interval: {self.monitor_interval}s)", "running")
         monitor = ProcessMonitor(interval=self.monitor_interval)
+        self.visualizer.show_step("Process Monitor", "Monitor initialized and ready", "done")
+
         child_process = None
         result: Dict[str, Any] = {}
         end_timestamp: Optional[str] = None
 
         try:
+            self.visualizer.show_subprocess_start(cmd)
             proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -6846,11 +7059,19 @@ class ScriptRunner:
 
             try:
                 child_process = psutil.Process(proc.pid)
+                self.visualizer.show_subprocess_start(cmd, proc.pid)
                 with self._active_process_lock:
                     self._active_process = child_process
+                self.visualizer.show_step("Monitoring", "Attaching process monitor to subprocess", "running")
                 monitor.start(child_process)
+                self.visualizer.show_step("Monitoring", "Process monitoring active", "done")
             except psutil.NoSuchProcess:
                 self.logger.warning("Could not attach monitor to child process")
+                self.visualizer.show_step("Monitoring", "Could not attach monitor (process terminated quickly)", "skip")
+
+            # Show monitoring updates periodically
+            if self.visualizer.enabled:
+                self.visualizer.show_step("Execution", "Script running - monitoring in progress", "running")
 
             try:
                 stdout, stderr = proc.communicate(timeout=self.timeout)
@@ -6868,9 +7089,13 @@ class ScriptRunner:
                 raise
 
             monitor.stop()
+            self.visualizer.show_step("Monitoring", "Process monitoring stopped", "done")
+
             end_time = time.time()
             end_timestamp = datetime.now().isoformat()
             execution_time = end_time - start_time
+
+            self.visualizer.show_step("Metrics Collection", "Collecting execution metrics", "running")
             end_metrics = self.collect_system_metrics_end(start_metrics)
             resource_metrics = self._collect_resource_usage()
             monitor_summary = monitor.get_summary()
@@ -6898,6 +7123,8 @@ class ScriptRunner:
                 'platform': sys.platform,
             }
 
+            self.visualizer.show_metrics_summary(self.metrics)
+
             result = {
                 'stdout': stdout,
                 'stderr': stderr,
@@ -6910,6 +7137,7 @@ class ScriptRunner:
                 'metrics': self.metrics
             }
         except subprocess.TimeoutExpired as e:
+            self.visualizer.show_step("Timeout", "Script execution timed out", "error")
             monitor.stop()
             end_time = time.time()
             end_timestamp = datetime.now().isoformat()
@@ -6939,6 +7167,7 @@ class ScriptRunner:
             }
 
         except Exception as e:
+            self.visualizer.show_step("Error", f"Execution error: {str(e)}", "error")
             monitor.stop()
             end_timestamp = datetime.now().isoformat()
             self.logger.error(f"Execution error: {e}")
@@ -6969,11 +7198,22 @@ class ScriptRunner:
             with self._active_process_lock:
                 self._active_process = None
 
-            # NEW: Check alerts
-            self.alert_manager.check_alerts(self.metrics)
+            # Check alerts
+            if self.alert_manager.alerts:
+                self.visualizer.show_step("Alerts", f"Checking {len(self.alert_manager.alerts)} alert rule(s)", "running")
+                self.alert_manager.check_alerts(self.metrics)
+                triggered = len(self.alert_manager.alert_history)
+                if triggered > 0:
+                    self.visualizer.show_step("Alerts", f"{triggered} alert(s) triggered", "done",
+                                            {"Triggered": triggered})
+                else:
+                    self.visualizer.show_step("Alerts", "No alerts triggered", "done")
+            else:
+                self.visualizer.show_step("Alerts", "No alert rules configured", "skip")
 
-            # NEW: Save to history database
+            # Save to history database
             if self.history_manager:
+                self.visualizer.show_step("History", "Saving metrics to database", "running")
                 try:
                     execution_id = self.history_manager.save_execution(self.metrics)
                     # Expose execution_id at top level for tests comparing multiple runs
@@ -6982,12 +7222,27 @@ class ScriptRunner:
                         result['metrics']['execution_id'] = execution_id
                     if execution_id is not None and self.alert_manager.alert_history:
                         self.history_manager.save_alerts(execution_id, self.alert_manager.alert_history)
+                    self.visualizer.show_step("History", f"Metrics saved (ID: {execution_id})", "done")
                 except Exception as e:
                     self.logger.warning(f"Failed to save to history database: {e}")
+                    self.visualizer.show_step("History", "Failed to save to database", "error")
+            else:
+                self.visualizer.show_step("History", "History tracking disabled", "skip")
 
-            hook_context['result'] = result
-            hook_context['end_time'] = end_timestamp or datetime.now().isoformat()
-            self.hooks.execute_post_hooks(hook_context)
+            # Execute post-hooks
+            if self.hooks.post_execution_hooks:
+                self.visualizer.show_step("Post-Hooks", f"Executing {len(self.hooks.post_execution_hooks)} post-execution hook(s)", "running")
+                hook_context['result'] = result
+                hook_context['end_time'] = end_timestamp or datetime.now().isoformat()
+                self.hooks.execute_post_hooks(hook_context)
+                self.visualizer.show_step("Post-Hooks", "Post-execution hooks completed", "done")
+            else:
+                self.visualizer.show_step("Post-Hooks", "No post-execution hooks registered", "skip")
+
+            # Show footer
+            final_time = time.time() - start_time
+            self.visualizer.show_footer(final_time, result.get('success', False),
+                                       result.get('returncode', -1))
 
         return result
 
@@ -7462,8 +7717,10 @@ Examples:
                        default='INFO', help='Logging level')
     parser.add_argument('--dry-run', action='store_true',
                        help='Validate the script and show execution plan without running it')
+    parser.add_argument('--visualize', action='store_true',
+                       help='Visualize and orchestrate the script execution flow in real-time')
     parser.add_argument('--config', help='Configuration file (YAML)')
-    parser.add_argument('--monitor-interval', type=float, default=0.1, 
+    parser.add_argument('--monitor-interval', type=float, default=0.1,
                        help='Process monitor sampling interval (seconds)')
     
     # Alerting options
@@ -8792,6 +9049,10 @@ Examples:
             history_db=args.history_db,
             enable_history=not args.disable_history
         )
+
+        # Enable visualization if requested
+        if args.visualize:
+            runner.visualizer.enabled = True
 
         if args.dry_run:
             try:
