@@ -1960,24 +1960,46 @@ class ScriptNode:
 
 
 class ScriptWorkflow:
-    """DAG-based multi-script orchestration engine (68% demand feature)"""
+    """DAG-based multi-script orchestration engine (68% demand feature)
+
+    Supports sequential and parallel execution of multiple Python scripts with
+    dependency tracking, cycle detection, real-time progress callbacks,
+    stop-on-failure semantics, and ASCII-art DAG visualization.
+
+    Attributes:
+        name (str): Workflow name
+        max_parallel (int): Maximum number of scripts to run concurrently
+        stop_on_failure (bool): Abort remaining scripts when one fails
+        on_step_callback (Callable | None): Optional callable invoked on each
+            node state change with signature ``(name, status, result_or_None)``
+    """
     
-    def __init__(self, name: str = "workflow", max_parallel: int = 4, history_db: Optional[str] = None):
+    def __init__(self, name: str = "workflow", max_parallel: int = 4,
+                 history_db: Optional[str] = None,
+                 stop_on_failure: bool = False,
+                 on_step_callback: Optional[Callable] = None):
         """Initialize workflow
         
         Args:
             name: Workflow name
-            max_parallel: Maximum parallel executions
+            max_parallel: Maximum parallel executions (1 = sequential)
             history_db: Optional database path for history tracking
+            stop_on_failure: If True, abort when any script fails. Default: False
+            on_step_callback: Optional callable invoked on each node state
+                change: ``callback(name, status, result)`` where *status* is
+                one of ``"running"``, ``"completed"``, ``"failed"``.
         """
         self.name = name
         self.max_parallel = max_parallel
         self.history_db = history_db or 'script_runner_history.db'
+        self.stop_on_failure = stop_on_failure
+        self.on_step_callback = on_step_callback
         self.scripts: Dict[str, ScriptNode] = {}
         self.execution_order = []
         self.start_time = None
         self.end_time = None
         self.total_time = 0
+        self._results_lock = threading.Lock()
     
     def add_script(self, name: str, script_path: str, script_args: Optional[List[str]] = None,
                    timeout: Optional[int] = None, dependencies: Optional[List[str]] = None):
@@ -2074,22 +2096,85 @@ class ScriptWorkflow:
                 if deps_met:
                     executable.append(name)
         return executable
-    
-    def execute(self, runner: Optional['ScriptRunner'] = None, dry_run: bool = False) -> Dict:
-        """Execute workflow sequentially
-        
+
+    def _run_node(self, script_name: str, results: Dict, semaphore: threading.Semaphore) -> None:
+        """Execute a single workflow node (runs in its own thread).
+
         Args:
-            runner: ScriptRunner instance for execution
-            dry_run: If True, only show execution plan without running
+            script_name: Name of the script node to execute
+            results: Shared results dictionary (access is protected by _results_lock)
+            semaphore: Semaphore controlling maximum parallel executions
+        """
+        node = self.scripts[script_name]
+        with semaphore:
+            node.status = "running"
+            logging.info(f"Executing script: {script_name} ({node.script_path})")
+            if self.on_step_callback:
+                try:
+                    self.on_step_callback(script_name, "running", None)
+                except Exception:
+                    pass
+            try:
+                start = time.time()
+                proc_result = subprocess.run(
+                    [sys.executable, node.script_path] + node.script_args,
+                    timeout=node.timeout,
+                    capture_output=True,
+                    text=True
+                )
+                node.execution_time = time.time() - start
+                node.status = "completed" if proc_result.returncode == 0 else "failed"
+                node.result = {
+                    "exit_code": proc_result.returncode,
+                    "execution_time": node.execution_time,
+                    "success": proc_result.returncode == 0,
+                    "stdout_len": len(proc_result.stdout),
+                    "stderr_len": len(proc_result.stderr),
+                }
+                logging.info(
+                    f"Script {node.status}: {script_name} "
+                    f"(time={node.execution_time:.2f}s, exit={proc_result.returncode})"
+                )
+            except subprocess.TimeoutExpired:
+                node.execution_time = time.time() - start
+                node.status = "failed"
+                node.result = {"exit_code": -1, "success": False, "error": "Timeout"}
+                logging.error(f"Script timeout: {script_name}")
+            except Exception as exc:
+                node.execution_time = time.time() - start
+                node.status = "failed"
+                node.result = {"exit_code": -1, "success": False, "error": str(exc)}
+                logging.error(f"Script error: {script_name}: {exc}")
+
+            with self._results_lock:
+                results[script_name] = node.result
+
+            if self.on_step_callback:
+                try:
+                    self.on_step_callback(script_name, node.status, node.result)
+                except Exception:
+                    pass
+
+    def execute(self, runner: Optional['ScriptRunner'] = None, dry_run: bool = False) -> Dict:
+        """Execute workflow with optional parallelism.
+
+        When ``max_parallel > 1`` the workflow uses a thread pool to run
+        independent scripts concurrently (respecting DAG dependency order).
+        When ``stop_on_failure`` is ``True`` the workflow aborts as soon as any
+        script fails.
+
+        Args:
+            runner: Unused (reserved for future full-runner integration). 
+            dry_run: If True, only show execution plan without running.
             
         Returns:
-            Dictionary with execution results for each script
+            Dictionary with execution results for each script.
         """
         if not self.build_dag():
             return {"status": "failed", "error": "DAG validation failed"}
         
         self.start_time = datetime.now()
-        results = {}
+        results: Dict = {}
         
         logging.info(f"Workflow started: {self.name}")
         logging.info(f"Scripts: {len(self.scripts)}")
@@ -2098,70 +2183,140 @@ class ScriptWorkflow:
         if dry_run:
             logging.info("DRY RUN - No scripts executed")
             return {"status": "dry_run", "plan": self.execution_order}
-        
-        # Execute in order
-        for script_name in self.execution_order:
-            node = self.scripts[script_name]
-            logging.info(f"Executing script: {script_name} ({node.script_path})")
-            
-            try:
-                start = time.time()
-                
-                # Execute script (simplified - in production would use full runner)
-                result = subprocess.run(
-                    [sys.executable, node.script_path] + node.script_args,
-                    timeout=node.timeout,
-                    capture_output=True,
-                    text=True
-                )
-                
-                node.execution_time = time.time() - start
-                node.status = "completed"
-                results[script_name] = {
-                    "exit_code": result.returncode,
-                    "execution_time": node.execution_time,
-                    "success": result.returncode == 0,
-                    "stdout_len": len(result.stdout),
-                    "stderr_len": len(result.stderr)
-                }
-                
-                logging.info(f"Script completed: {script_name} (time={node.execution_time:.2f}s, exit={result.returncode})")
-                
-            except subprocess.TimeoutExpired:
-                node.status = "failed"
-                results[script_name] = {
-                    "exit_code": -1,
-                    "success": False,
-                    "error": "Timeout"
-                }
-                logging.error(f"Script timeout: {script_name}")
+
+        semaphore = threading.Semaphore(max(1, self.max_parallel))
+        aborted = False
+
+        # Wave-based parallel execution: each wave contains all scripts whose
+        # dependencies are satisfied.  We keep iterating until no progress can
+        # be made or all scripts are done.
+        while True:
+            ready = self.get_executable_scripts()
+            if not ready:
+                break  # Either done or stuck (cycle / failed deps)
+
+            if aborted:
                 break
-            except Exception as e:
-                node.status = "failed"
-                results[script_name] = {
-                    "exit_code": -1,
-                    "success": False,
-                    "error": str(e)
-                }
-                logging.error(f"Script error: {script_name}: {e}")
+
+            # Check for stop_on_failure: if any already-run node failed, abort
+            if self.stop_on_failure and any(
+                n.status == "failed" for n in self.scripts.values()
+            ):
+                aborted = True
+                break
+
+            # Launch all ready scripts, up to max_parallel at a time
+            threads = []
+            for script_name in ready:
+                node = self.scripts[script_name]
+                if node.status != "pending":
+                    continue  # Already dispatched
+                # Mark as running to avoid re-dispatch
+                node.status = "running"
+                t = threading.Thread(
+                    target=self._run_node,
+                    args=(script_name, results, semaphore),
+                    daemon=True,
+                )
+                threads.append(t)
+                t.start()
+
+            # Wait for this wave to finish before scheduling dependent scripts
+            for t in threads:
+                t.join()
+
+            if self.stop_on_failure and any(
+                n.status == "failed" for n in self.scripts.values()
+            ):
+                aborted = True
                 break
         
         self.end_time = datetime.now()
         self.total_time = (self.end_time - self.start_time).total_seconds()
         
-        # Summary
         successful = sum(1 for s in self.scripts.values() if s.status == "completed")
-        logging.info(f"Workflow completed: {self.name}")
-        logging.info(f"Total scripts: {len(self.scripts)}, Successful: {successful}, Failed: {len(self.scripts) - successful}")
+        failed = sum(1 for s in self.scripts.values() if s.status == "failed")
+        status = "aborted" if aborted else "completed"
+        logging.info(f"Workflow {status}: {self.name}")
+        logging.info(
+            f"Total scripts: {len(self.scripts)}, "
+            f"Successful: {successful}, Failed: {failed}"
+        )
         logging.info(f"Total execution time: {self.total_time:.2f}s")
         
         return {
-            "status": "completed",
+            "status": status,
             "total_scripts": len(self.scripts),
             "successful": successful,
+            "failed": failed,
             "total_time": self.total_time,
-            "results": results
+            "results": results,
         }
+
+    def visualize_dag(self) -> str:
+        """Return an ASCII-art representation of the workflow DAG.
+
+        Produces a multi-line string showing each script as a node, its
+        dependencies as incoming arrows, and the current execution status.
+
+        Returns:
+            str: Multi-line ASCII-art DAG diagram.
+
+        Example::
+
+            Workflow: my_pipeline
+            ─────────────────────────────────────────
+            [fetch_data     ] (pending)
+                └──▶ [transform    ] (pending)
+                └──▶ [validate     ] (pending)
+                         └──▶ [load_db     ] (pending)
+            ─────────────────────────────────────────
+        """
+        lines = [f"Workflow: {self.name}", "─" * 45]
+
+        # Build reverse map: node -> list of dependents
+        dependents: Dict[str, List[str]] = {n: [] for n in self.scripts}
+        for name, node in self.scripts.items():
+            for dep in node.dependencies:
+                if dep in dependents:
+                    dependents[dep].append(name)
+
+        # Find root nodes (no dependencies)
+        roots = [n for n, node in self.scripts.items() if not node.dependencies]
+
+        visited: set = set()
+
+        def _render_children(name: str, indent: int) -> None:
+            """Render the children of *name* as indented arrow lines."""
+            for child in dependents.get(name, []):
+                if child not in visited:
+                    visited.add(child)
+                    child_node = self.scripts[child]
+                    child_label = child[:12].ljust(12)
+                    child_prefix = "    " * indent
+                    lines.append(f"{child_prefix}└──▶ [{child_label}] ({child_node.status})")
+                    _render_children(child, indent + 1)
+
+        def _render(name: str, indent: int) -> None:
+            node = self.scripts[name]
+            prefix = "    " * indent
+            label = name[:12].ljust(12)
+            lines.append(f"{prefix}[{label}] ({node.status})")
+            _render_children(name, indent + 1)
+
+        for root in roots:
+            if root not in visited:
+                visited.add(root)
+                _render(root, 0)
+
+        # Catch any disconnected nodes
+        for name in self.scripts:
+            if name not in visited:
+                visited.add(name)
+                _render(name, 0)
+
+        lines.append("─" * 45)
+        return "\n".join(lines)
     
     def get_statistics(self) -> Dict:
         """Get workflow execution statistics
@@ -6173,28 +6328,104 @@ class ExecutionVisualizer:
 
     This class enables users to understand and debug the execution flow by showing
     each stage of the orchestration process with clear visual markers and timing.
+    Supports optional ANSI color output, per-step timing, structured JSON reports,
+    and writing visualization output to a file.
 
     Attributes:
         enabled (bool): Whether visualization is enabled
         start_time (float): Timestamp when visualization started
         step_count (int): Counter for execution steps
+        use_color (bool): Whether to emit ANSI color codes
+        output_format (str): Output format – ``"text"`` (default) or ``"json"``
+        output_file (str | None): Optional path to write visualization output
 
     Example:
-        >>> visualizer = ExecutionVisualizer(enabled=True)
+        >>> visualizer = ExecutionVisualizer(enabled=True, use_color=True)
         >>> visualizer.show_header("my_script.py")
         >>> visualizer.show_step("Initializing", "Setting up environment")
         >>> visualizer.show_footer(execution_time=1.234, success=True)
+        >>> report = visualizer.get_execution_report()
     """
 
-    def __init__(self, enabled: bool = False):
+    # ANSI color codes
+    _COLORS = {
+        "reset":  "\033[0m",
+        "bold":   "\033[1m",
+        "green":  "\033[32m",
+        "yellow": "\033[33m",
+        "red":    "\033[31m",
+        "cyan":   "\033[36m",
+        "blue":   "\033[34m",
+        "gray":   "\033[90m",
+    }
+
+    def __init__(self, enabled: bool = False, use_color: Optional[bool] = None,
+                 output_format: str = "text", output_file: Optional[str] = None):
         """Initialize the execution visualizer.
 
         Args:
             enabled (bool): Enable or disable visualization output. Default: False
+            use_color (bool | None): Emit ANSI color codes. ``None`` auto-detects
+                based on whether stdout is a TTY. Default: None
+            output_format (str): ``"text"`` for human-readable output or ``"json"``
+                for machine-readable structured output. Default: ``"text"``
+            output_file (str | None): Path to write output to in addition to
+                stdout. ``None`` disables file output. Default: None
         """
         self.enabled = enabled
+        self.output_format = output_format
+        self.output_file = output_file
         self.start_time = None
         self.step_count = 0
+
+        # Auto-detect color support when not explicitly set
+        if use_color is None:
+            self.use_color = sys.stdout.isatty()
+        else:
+            self.use_color = use_color
+
+        # Internal records used by get_execution_report()
+        self._steps: List[Dict] = []
+        self._header_info: Dict = {}
+        self._footer_info: Dict = {}
+        self._step_timers: Dict[str, float] = {}  # stage -> start time of current step
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _strip_ansi(text: str) -> str:
+        """Remove ANSI escape codes from *text*."""
+        return re.sub(r'\033\[[0-9;]*m', '', text)
+
+    def _color(self, text: str, *codes: str) -> str:
+        """Wrap *text* in ANSI color codes if color is enabled."""
+        if not self.use_color:
+            return text
+        prefix = "".join(self._COLORS.get(c, "") for c in codes)
+        return f"{prefix}{text}{self._COLORS['reset']}"
+
+    def _emit(self, line: str) -> None:
+        """Print *line* to stdout and optionally append it to output_file.
+
+        When writing to a file, ANSI escape codes are stripped so the file
+        contains only plain text.
+        """
+        print(line)
+        if self.output_file:
+            try:
+                with open(self.output_file, "a", encoding="utf-8") as fh:
+                    fh.write(self._strip_ansi(line) + "\n")
+            except OSError as exc:
+                logging.warning(f"ExecutionVisualizer: cannot write to output file: {exc}")
+
+    def _elapsed(self) -> float:
+        return time.time() - self.start_time if self.start_time else 0.0
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     def show_header(self, script_path: str, script_args: Optional[List[str]] = None,
                     attempt: int = 1) -> None:
@@ -6210,16 +6441,29 @@ class ExecutionVisualizer:
 
         self.start_time = time.time()
         self.step_count = 0
+        self._steps = []
+        self._step_timers = {}
 
-        print("\n" + "=" * 80)
-        print("SCRIPT EXECUTION FLOW VISUALIZATION")
-        print("=" * 80)
-        print(f"Script: {script_path}")
+        self._header_info = {
+            "script_path": script_path,
+            "script_args": script_args or [],
+            "attempt": attempt,
+            "started": datetime.now().isoformat(),
+        }
+
+        if self.output_format == "json":
+            return  # defer all output to get_execution_report()
+
+        separator = self._color("=" * 80, "bold", "cyan")
+        self._emit("\n" + separator)
+        self._emit(self._color("SCRIPT EXECUTION FLOW VISUALIZATION", "bold", "cyan"))
+        self._emit(separator)
+        self._emit(f"Script:  {self._color(script_path, 'bold')}")
         if script_args:
-            print(f"Arguments: {' '.join(script_args)}")
-        print(f"Attempt: #{attempt}")
-        print(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        print("=" * 80 + "\n")
+            self._emit(f"Args:    {' '.join(script_args)}")
+        self._emit(f"Attempt: #{attempt}")
+        self._emit(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        self._emit(separator + "\n")
 
     def show_step(self, stage: str, description: str, status: str = "running",
                   details: Optional[Dict] = None) -> None:
@@ -6234,27 +6478,52 @@ class ExecutionVisualizer:
         if not self.enabled:
             return
 
+        elapsed = self._elapsed()
+
+        # Per-step duration tracking: record start time on "running", compute duration on completion
+        step_duration: Optional[float] = None
+        if status == "running":
+            self._step_timers[stage] = time.time()
+        elif stage in self._step_timers:
+            step_duration = time.time() - self._step_timers.pop(stage)
+
         self.step_count += 1
 
-        # Status symbols
-        symbols = {
-            "running": "⏳",
-            "done": "✓",
-            "skip": "⊘",
-            "error": "✗"
+        # Status symbols and colors
+        symbol_map = {
+            "running": ("⏳", "yellow"),
+            "done":    ("✓",  "green"),
+            "skip":    ("⊘",  "gray"),
+            "error":   ("✗",  "red"),
         }
-        symbol = symbols.get(status, "•")
+        symbol, color = symbol_map.get(status, ("•", "reset"))
+        colored_symbol = self._color(symbol, color)
+        colored_stage = self._color(stage, "bold")
 
-        # Calculate elapsed time
-        elapsed = time.time() - self.start_time if self.start_time else 0
+        # Record step for structured report
+        step_record: Dict[str, Any] = {
+            "step": self.step_count,
+            "stage": stage,
+            "description": description,
+            "status": status,
+            "elapsed_s": round(elapsed, 4),
+            "details": details or {},
+        }
+        if step_duration is not None:
+            step_record["duration_s"] = round(step_duration, 4)
+        self._steps.append(step_record)
 
-        print(f"[{elapsed:>6.2f}s] {symbol} Step {self.step_count}: {stage}")
-        print(f"           └─ {description}")
+        if self.output_format == "json":
+            return  # defer all output to get_execution_report()
+
+        duration_str = f" ({step_duration:.3f}s)" if step_duration is not None else ""
+        self._emit(f"[{elapsed:>6.2f}s] {colored_symbol} Step {self.step_count}: {colored_stage}{duration_str}")
+        self._emit(f"           └─ {description}")
 
         if details:
             for key, value in details.items():
-                print(f"              • {key}: {value}")
-        print()
+                self._emit(f"              {self._color('•', 'cyan')} {key}: {value}")
+        self._emit("")
 
     def show_subprocess_start(self, cmd: List[str], pid: Optional[int] = None) -> None:
         """Display subprocess launch information.
@@ -6267,13 +6536,27 @@ class ExecutionVisualizer:
             return
 
         self.step_count += 1
-        elapsed = time.time() - self.start_time if self.start_time else 0
+        elapsed = self._elapsed()
 
-        print(f"[{elapsed:>6.2f}s] 🚀 Step {self.step_count}: Subprocess Launch")
-        print(f"           └─ Command: {' '.join(cmd)}")
+        step_record: Dict[str, Any] = {
+            "step": self.step_count,
+            "stage": "Subprocess Launch",
+            "description": f"Command: {' '.join(cmd)}",
+            "status": "running",
+            "elapsed_s": round(elapsed, 4),
+            "details": {"pid": pid} if pid else {},
+        }
+        self._steps.append(step_record)
+
+        if self.output_format == "json":
+            return
+
+        launch_label = self._color("🚀 Subprocess Launch", "bold", "blue")
+        self._emit(f"[{elapsed:>6.2f}s] {launch_label}")
+        self._emit(f"           └─ Command: {self._color(' '.join(cmd), 'cyan')}")
         if pid:
-            print(f"              • Process ID: {pid}")
-        print()
+            self._emit(f"              {self._color('•', 'cyan')} Process ID: {pid}")
+        self._emit("")
 
     def show_monitoring_update(self, cpu_percent: float, memory_mb: float,
                               samples: int) -> None:
@@ -6286,10 +6569,21 @@ class ExecutionVisualizer:
         """
         if not self.enabled:
             return
+        if self.output_format == "json":
+            return
 
-        elapsed = time.time() - self.start_time if self.start_time else 0
-        print(f"\r[{elapsed:>6.2f}s] 📊 Monitoring: CPU={cpu_percent:.1f}% | "
-              f"Memory={memory_mb:.1f}MB | Samples={samples}", end='', flush=True)
+        elapsed = self._elapsed()
+        cpu_str = self._color(f"{cpu_percent:.1f}%", "yellow")
+        mem_str = self._color(f"{memory_mb:.1f}MB", "cyan")
+        line = (f"\r[{elapsed:>6.2f}s] 📊 Monitoring: CPU={cpu_str} | "
+                f"Memory={mem_str} | Samples={samples}")
+        print(line, end='', flush=True)
+        if self.output_file:
+            try:
+                with open(self.output_file, "a", encoding="utf-8") as fh:
+                    fh.write(self._strip_ansi(line) + "\n")
+            except OSError:
+                pass
 
     def show_metrics_summary(self, metrics: Dict) -> None:
         """Display collected metrics summary.
@@ -6300,14 +6594,12 @@ class ExecutionVisualizer:
         if not self.enabled:
             return
 
-        print()  # New line after monitoring updates
+        if self.output_format != "json":
+            self._emit("")  # New line after monitoring updates
+
         self.step_count += 1
-        elapsed = time.time() - self.start_time if self.start_time else 0
+        elapsed = self._elapsed()
 
-        print(f"\n[{elapsed:>6.2f}s] 📈 Step {self.step_count}: Metrics Collection Complete")
-        print(f"           └─ Collected {len(metrics)} metrics")
-
-        # Show key metrics
         key_metrics = {
             'execution_time_seconds': 'Execution Time',
             'cpu_max': 'Peak CPU %',
@@ -6316,15 +6608,31 @@ class ExecutionVisualizer:
             'memory_avg_mb': 'Average Memory (MB)',
             'exit_code': 'Exit Code',
         }
+        summary_details = {}
+        for k, label in key_metrics.items():
+            if k in metrics:
+                v = metrics[k]
+                summary_details[label] = f"{v:.2f}" if isinstance(v, float) else str(v)
 
-        for metric_key, label in key_metrics.items():
-            if metric_key in metrics:
-                value = metrics[metric_key]
-                if isinstance(value, float):
-                    print(f"              • {label}: {value:.2f}")
-                else:
-                    print(f"              • {label}: {value}")
-        print()
+        step_record: Dict[str, Any] = {
+            "step": self.step_count,
+            "stage": "Metrics Collection",
+            "description": f"Collected {len(metrics)} metrics",
+            "status": "done",
+            "elapsed_s": round(elapsed, 4),
+            "details": summary_details,
+        }
+        self._steps.append(step_record)
+
+        if self.output_format == "json":
+            return
+
+        header = self._color(f"📈 Step {self.step_count}: Metrics Collection Complete", "bold", "green")
+        self._emit(f"\n[{elapsed:>6.2f}s] {header}")
+        self._emit(f"           └─ Collected {len(metrics)} metrics")
+        for label, val in summary_details.items():
+            self._emit(f"              {self._color('•', 'cyan')} {label}: {val}")
+        self._emit("")
 
     def show_footer(self, execution_time: float, success: bool,
                     returncode: int = 0) -> None:
@@ -6338,17 +6646,51 @@ class ExecutionVisualizer:
         if not self.enabled:
             return
 
-        status_symbol = "✓" if success else "✗"
-        status_text = "SUCCESS" if success else "FAILED"
+        self._footer_info = {
+            "execution_time_s": round(execution_time, 4),
+            "success": success,
+            "returncode": returncode,
+            "steps_completed": self.step_count,
+            "ended": datetime.now().isoformat(),
+        }
 
-        print("=" * 80)
-        print(f"EXECUTION {status_text} {status_symbol}")
-        print("=" * 80)
-        print(f"Total Time: {execution_time:.4f}s")
-        print(f"Exit Code: {returncode}")
-        print(f"Steps Completed: {self.step_count}")
-        print(f"Ended: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        print("=" * 80 + "\n")
+        if self.output_format == "json":
+            # Emit a single JSON document when using json format
+            report = self.get_execution_report()
+            self._emit(json.dumps(report, indent=2))
+            return
+
+        status_symbol = self._color("✓", "bold", "green") if success else self._color("✗", "bold", "red")
+        status_text = self._color("SUCCESS", "bold", "green") if success else self._color("FAILED", "bold", "red")
+        separator = self._color("=" * 80, "bold", "cyan")
+
+        self._emit(separator)
+        self._emit(f"EXECUTION {status_text} {status_symbol}")
+        self._emit(separator)
+        self._emit(f"Total Time:      {execution_time:.4f}s")
+        self._emit(f"Exit Code:       {returncode}")
+        self._emit(f"Steps Completed: {self.step_count}")
+        self._emit(f"Ended:           {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        self._emit(separator + "\n")
+
+    def get_execution_report(self) -> Dict:
+        """Return a structured dictionary summarising the entire execution flow.
+
+        The report contains the header information, a list of all recorded steps
+        (including per-step durations where available), and the footer summary.
+        It can be used for programmatic inspection or serialisation to JSON.
+
+        Returns:
+            Dict: Structured execution report with keys:
+                - ``header`` (Dict): Script path, args, attempt, start time
+                - ``steps`` (List[Dict]): Each step with stage, status, elapsed, duration
+                - ``footer`` (Dict): Total time, success, returncode, steps completed
+        """
+        return {
+            "header": dict(self._header_info),
+            "steps": list(self._steps),
+            "footer": dict(self._footer_info),
+        }
 
 
 class ProcessMonitor:
@@ -7719,6 +8061,10 @@ Examples:
                        help='Validate the script and show execution plan without running it')
     parser.add_argument('--visualize', action='store_true',
                        help='Visualize and orchestrate the script execution flow in real-time')
+    parser.add_argument('--visualize-format', choices=['text', 'json'], default='text',
+                       help='Visualization output format: "text" (default) or "json"')
+    parser.add_argument('--visualize-output', default=None,
+                       help='File path to write visualization output (in addition to stdout)')
     parser.add_argument('--config', help='Configuration file (YAML)')
     parser.add_argument('--monitor-interval', type=float, default=0.1,
                        help='Process monitor sampling interval (seconds)')
@@ -9052,7 +9398,11 @@ Examples:
 
         # Enable visualization if requested
         if args.visualize:
-            runner.visualizer.enabled = True
+            runner.visualizer = ExecutionVisualizer(
+                enabled=True,
+                output_format=args.visualize_format,
+                output_file=args.visualize_output,
+            )
 
         if args.dry_run:
             try:
