@@ -286,7 +286,7 @@ def delete_runs(run_ids: List[str] = Body(...)) -> Dict[str, int]:
                     del RUNS[run_id]
             if RUN_STORE.delete(run_id):
                 count += 1
-        except:
+        except Exception:
             pass
     return {"deleted": count}
 
@@ -367,9 +367,9 @@ def _execute_run(run_id: str, payload: RunRequest, cancel_event: threading.Event
         stdout = ""
         stderr = ""
         if stdout_path.exists():
-            stdout = stdout_path.read_text(errors="replace")
+            stdout = stdout_path.read_text(errors="replace")[:_MAX_OUTPUT_SIZE]
         if stderr_path.exists():
-            stderr = stderr_path.read_text(errors="replace")
+            stderr = stderr_path.read_text(errors="replace")[:_MAX_OUTPUT_SIZE]
 
         returncode = process.returncode
 
@@ -430,12 +430,17 @@ def _execute_run(run_id: str, payload: RunRequest, cancel_event: threading.Event
             if p.exists():
                 try:
                     p.unlink()
-                except:
+                except OSError:
                     pass
 
 
 def _validate_script_path(path_str: str) -> Path:
-    candidate = Path(path_str).expanduser().resolve()
+    if '\x00' in path_str:
+        raise HTTPException(status_code=400, detail="Invalid script path")
+    raw_path = Path(path_str).expanduser()
+    if raw_path.is_symlink():
+        raise HTTPException(status_code=400, detail="Symlinks are not allowed")
+    candidate = raw_path.resolve()
     if not candidate.is_file():
         raise HTTPException(status_code=400, detail="Script path must point to an existing file")
     try:
@@ -447,12 +452,27 @@ def _validate_script_path(path_str: str) -> Path:
     return candidate
 
 
+# Environment variables that must not be overridden by API callers.
+_DANGEROUS_ENV_VARS = frozenset({
+    "PATH", "LD_PRELOAD", "LD_LIBRARY_PATH", "PYTHONPATH",
+    "DYLD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES",
+})
+
+# Maximum size (in bytes) for captured stdout/stderr to prevent memory exhaustion.
+_MAX_OUTPUT_SIZE = 10 * 1024 * 1024  # 10 MB
+
+
 def _validate_payload(payload: RunRequest) -> RunRequest:
     _validate_script_path(payload.script_path)
     if payload.timeout is not None and payload.timeout <= 0:
         raise HTTPException(status_code=400, detail="Timeout must be a positive integer")
     if len(payload.args) > 50:
         raise HTTPException(status_code=400, detail="Too many arguments supplied")
+    # Filter out dangerous environment variables
+    payload.env_vars = {
+        k: v for k, v in payload.env_vars.items()
+        if k not in _DANGEROUS_ENV_VARS
+    }
     return payload
 
 

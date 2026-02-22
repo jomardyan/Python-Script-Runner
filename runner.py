@@ -146,7 +146,7 @@ class HistoryManager:
                 # Try to get connection from pool (non-blocking)
                 conn = self._connection_pool.get_nowait()
                 self.logger.debug(f"Reused pooled connection. Pool size: {self._connection_pool.qsize()}")
-            except:
+            except Exception:
                 # Create new connection if pool empty
                 conn = sqlite3.connect(self.db_path, timeout=10.0)
                 conn.row_factory = sqlite3.Row
@@ -165,7 +165,7 @@ class HistoryManager:
                             # Close if pool is full
                             conn.close()
                             self.logger.debug("Connection pool full, closed connection")
-                    except:
+                    except Exception:
                         conn.close()
         
         return _get_conn()
@@ -176,7 +176,7 @@ class HistoryManager:
             try:
                 conn = self._connection_pool.get_nowait()
                 conn.close()
-            except:
+            except Exception:
                 pass
         self.logger.info("All pooled connections closed")
 
@@ -4540,7 +4540,7 @@ class AdvancedProfiler:
                 try:
                     with open(script_path, 'r') as f:
                         exec(f.read(), {'__name__': '__main__'})
-                except:
+                except Exception:
                     pass
                 pr.disable()
                 
@@ -8526,7 +8526,7 @@ Examples:
                 try:
                     import json
                     alert = json.loads(args.suggest_alert_routing)
-                except:
+                except (json.JSONDecodeError, TypeError, ValueError):
                     alert = {"severity": args.suggest_alert_routing}
                 
                 result = alert_intel.suggest_alert_routing(alert)

@@ -183,7 +183,7 @@ else:
         # Clean up state file
         try:
             os.remove('/tmp/workflow_state.txt')
-        except:
+        except OSError:
             pass
         
         # Execute scripts

@@ -17,6 +17,7 @@ Features:
 import json
 import logging
 import os
+import shlex
 import time
 import threading
 import queue
@@ -342,10 +343,11 @@ class WorkflowExecutor:
         
         try:
             timeout = task.metadata.timeout if task.metadata else 3600.0
-            # Run the actual subprocess command
+            # Run the actual subprocess command (shell=False to prevent injection)
+            cmd = shlex.split(task.script)
             process = subprocess.Popen(
-                task.script,
-                shell=True,
+                cmd,
+                shell=False,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 env={**os.environ, **task.env} if hasattr(task, 'env') else None,

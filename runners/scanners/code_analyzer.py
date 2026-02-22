@@ -186,7 +186,7 @@ class BanditAnalyzer:
                 stderr=subprocess.PIPE,
                 text=True,
             )
-            stdout, stderr = process.communicate()
+            stdout, stderr = process.communicate(timeout=300)
 
             if process.returncode not in [0, 1]:
                 return AnalysisResult(
@@ -283,7 +283,7 @@ class SemgrepAnalyzer:
                 stderr=subprocess.PIPE,
                 text=True,
             )
-            stdout, stderr = process.communicate()
+            stdout, stderr = process.communicate(timeout=300)
 
             # Semgrep returns 0 if no findings, >0 if findings
             if process.returncode not in [0, 1]:
