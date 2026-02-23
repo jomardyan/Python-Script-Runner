@@ -237,6 +237,8 @@
         .status-completed { background: var(--success-bg); color: var(--success-text); }
         .status-failed { background: var(--danger-bg); color: var(--danger-text); }
         .status-cancelled { background: var(--bg-color); color: var(--text-muted); border: 1px solid var(--border-color); }
+        .status-killed { background: var(--danger-bg); color: var(--danger-text); }
+        .status-timeout { background: var(--warning-bg); color: var(--warning-text); }
 
         .script-path {
             max-width: 300px;
@@ -536,6 +538,18 @@
                         </select>
                     </div>
 
+                    <div class="form-group">
+                        <label for="working-dir">Working Directory</label>
+                        <input type="text" id="working-dir" placeholder="Defaults to script directory" />
+                    </div>
+
+                    <div class="form-group" style="justify-content: flex-end;">
+                        <label style="flex-direction: row; align-items: center; gap: 0.5rem; font-weight: normal; cursor: pointer;">
+                            <input type="checkbox" id="stream-output" />
+                            Stream output in real time
+                        </label>
+                    </div>
+
                     <div class="form-group" style="grid-column: 1 / -1;">
                         <label>Environment Variables</label>
                         <div id="env-vars-container">
@@ -598,11 +612,12 @@
                             <th class="hide-mobile">Args</th>
                             <th class="hide-mobile">Started</th>
                             <th class="hide-mobile">Duration</th>
+                            <th class="hide-mobile">Correlation</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody id="runs-table">
-                        <tr><td colspan="8" style="text-align: center; color: var(--text-muted);">Loading runs...</td></tr>
+                        <tr><td colspan="9" style="text-align: center; color: var(--text-muted);">Loading runs...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -753,6 +768,95 @@
             fetchRuns();
         }
 
+        async function stopRun(runId) {
+            const res = await fetch(`/api/runs/${runId}/stop`, { method: 'POST' });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                showToast(err.detail || 'Unable to stop run', 'error');
+                return;
+            }
+            showToast(`Stop signal sent to ${runId.slice(0, 8)}...`);
+            fetchRuns();
+        }
+
+        async function killRun(runId) {
+            if (!confirm('Force kill this run? All child processes will be terminated immediately.')) return;
+            const res = await fetch(`/api/runs/${runId}/kill`, { method: 'POST' });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                showToast(err.detail || 'Unable to kill run', 'error');
+                return;
+            }
+            showToast(`Kill signal sent to ${runId.slice(0, 8)}...`, 'error');
+            fetchRuns();
+        }
+
+        async function restartRun(runId) {
+            if (!confirm('Restart this run with the same configuration?')) return;
+            const res = await fetch(`/api/runs/${runId}/restart`, { method: 'POST' });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                showToast(err.detail || 'Unable to restart run', 'error');
+                return;
+            }
+            const data = await res.json();
+            showToast(`New run queued: ${data.run_id ? data.run_id.slice(0, 8) : ''}...`);
+            fetchRuns();
+            fetchStats();
+        }
+
+        async function viewDetails(runId) {
+            document.getElementById('modal-title').textContent = `Details: ${runId.slice(0, 8)}...`;
+            document.getElementById('modal').style.display = 'flex';
+            const logPre = document.getElementById('modal-body');
+            logPre.textContent = 'Loading...';
+
+            try {
+                const [runRes, eventsRes] = await Promise.all([
+                    fetch(`/api/runs/${runId}`),
+                    fetch(`/api/runs/${runId}/events`)
+                ]);
+                const run = runRes.ok ? await runRes.json() : null;
+                const events = eventsRes.ok ? await eventsRes.json() : [];
+
+                if (!run) { logPre.textContent = 'Run not found.'; return; }
+
+                const lines = [];
+                lines.push(`Run ID:         ${run.id}`);
+                lines.push(`Job Status:     ${run.status}`);
+                lines.push(`Runner Status:  ${run.run_status || '—'}`);
+                lines.push(`Correlation ID: ${run.correlation_id || '—'}`);
+                lines.push(`Script:         ${run.request.script_path}`);
+                lines.push(`Args:           ${(run.request.args || []).join(' ') || '—'}`);
+                lines.push(`Working Dir:    ${run.request.working_dir || '(default)'}`);
+                lines.push(`Timeout:        ${run.request.timeout || '—'}`);
+                lines.push(`Stream Output:  ${run.request.stream_output ? 'yes' : 'no'}`);
+                lines.push(`Started:        ${new Date(run.started_at).toLocaleString()}`);
+                lines.push(`Finished:       ${run.finished_at ? new Date(run.finished_at).toLocaleString() : '—'}`);
+                if (run.error_summary) {
+                    lines.push('\n--- Error Summary ---');
+                    lines.push(JSON.stringify(run.error_summary, null, 2));
+                }
+                if (run.result && run.result.metrics) {
+                    const m = run.result.metrics;
+                    lines.push('\n--- Metrics ---');
+                    lines.push(`Execution Time: ${m.execution_time_seconds ?? '—'}s`);
+                    lines.push(`Exit Code:      ${m.exit_code ?? '—'}`);
+                    lines.push(`CPU Max:        ${m.cpu_max ?? '—'}%`);
+                    lines.push(`Memory Max:     ${m.memory_max_mb ?? '—'} MB`);
+                }
+                if (events.length) {
+                    lines.push('\n--- Structured Events ---');
+                    events.forEach(ev => {
+                        lines.push(`[${ev.timestamp}] ${ev.event_type}: ${JSON.stringify(ev.data)}`);
+                    });
+                }
+                logPre.textContent = lines.join('\n');
+            } catch (e) {
+                logPre.textContent = 'Failed to load details.';
+            }
+        }
+
         function formatDuration(start, end) {
             if (!end) return '—';
             const ms = new Date(end) - new Date(start);
@@ -773,7 +877,7 @@
                 
                 const runs = await res.json();
                 if (!runs.length) {
-                    runsTable.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 2rem;">No runs found.</td></tr>';
+                    runsTable.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 2rem;">No runs found.</td></tr>';
                     return;
                 }
                 
@@ -782,17 +886,23 @@
                     const duration = formatDuration(run.started_at, run.finished_at);
                     const args = (run.request.args || []).join(' ');
                     const canCancel = ['queued', 'running'].includes(run.status.toLowerCase());
+                    const corrId = run.correlation_id ? `<span class="code-pill" title="${run.correlation_id}">${run.correlation_id.slice(0, 8)}</span>` : '<span style="color:var(--text-muted)">—</span>';
+                    const runStatusBadge = run.run_status ? `<span class="status-badge status-${run.run_status}">${run.run_status}</span>` : '';
                     
                     return `<tr>
                         <td><span class="code-pill" title="${run.id}">${run.id.slice(0, 8)}</span></td>
-                        <td>${statusBadge(run.status)}</td>
+                        <td>${statusBadge(run.status)} ${runStatusBadge}</td>
                         <td><div class="script-path" style="font-weight: 500;">${run.request.script_path}</div></td>
                         <td class="hide-mobile"><div class="args-cell" style="color: var(--text-muted); font-size: 0.85rem;" title="${args}">${args || '—'}</div></td>
                         <td class="hide-mobile" style="font-size: 0.85rem;">${started}</td>
                         <td class="hide-mobile" style="font-size: 0.85rem;">${duration}</td>
+                        <td class="hide-mobile">${corrId}</td>
                         <td class="actions">
                             <button class="btn btn-secondary btn-sm" onclick="viewLogs('${run.id}')">Logs</button>
-                            ${canCancel ? `<button class="btn btn-secondary btn-sm" style="color: var(--danger-text); border-color: var(--danger-bg);" onclick="cancelRun('${run.id}')">Cancel</button>` : ''}
+                            <button class="btn btn-secondary btn-sm" onclick="viewDetails('${run.id}')">Details</button>
+                            ${canCancel ? `<button class="btn btn-secondary btn-sm" style="color: var(--warning-text);" onclick="stopRun('${run.id}')" title="Graceful stop">Stop</button>` : ''}
+                            ${canCancel ? `<button class="btn btn-secondary btn-sm" style="color: var(--danger-text); border-color: var(--danger-bg);" onclick="killRun('${run.id}')" title="Force kill">Kill</button>` : ''}
+                            ${!canCancel ? `<button class="btn btn-secondary btn-sm" onclick="restartRun('${run.id}')" title="Re-run with same config">↺ Restart</button>` : ''}
                         </td>
                     </tr>`;
                 }).join('');
@@ -856,6 +966,8 @@
             const timeout = document.getElementById('timeout').value || null;
             const logLevel = document.getElementById('log-level').value;
             const retry = document.getElementById('retry').value === 'true';
+            const workingDir = document.getElementById('working-dir').value.trim() || null;
+            const streamOutput = document.getElementById('stream-output').checked;
 
             const envVars = {};
             document.querySelectorAll('#env-vars-container .env-row').forEach(row => {
@@ -879,7 +991,9 @@
                         timeout,
                         log_level: logLevel,
                         retry_on_failure: retry,
-                        env_vars: envVars
+                        env_vars: envVars,
+                        working_dir: workingDir,
+                        stream_output: streamOutput,
                     };
 
                     res = await fetch('/api/run', {
@@ -901,6 +1015,8 @@
                     formData.append('log_level', logLevel);
                     formData.append('retry_on_failure', retry);
                     formData.append('env_vars', JSON.stringify(envVars));
+                    if (workingDir) formData.append('working_dir', workingDir);
+                    formData.append('stream_output', streamOutput);
                     
                     res = await fetch('/api/run/upload', {
                         method: 'POST',

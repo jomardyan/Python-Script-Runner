@@ -55,6 +55,14 @@ class RunRequest(BaseModel):
     env_vars: Dict[str, str] = Field(
         default_factory=dict, description="Environment variables to set for the execution"
     )
+    working_dir: Optional[str] = Field(
+        None,
+        description="Working directory for the script process. Defaults to the script's own directory.",
+    )
+    stream_output: bool = Field(
+        False,
+        description="Stream stdout/stderr to the runner logger in real time while also capturing them.",
+    )
 
 
 class RunRecord(BaseModel):
@@ -67,6 +75,10 @@ class RunRecord(BaseModel):
     request: RunRequest
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
+    # Fields populated from the ScriptRunner result
+    correlation_id: Optional[str] = None
+    run_status: Optional[str] = None  # runner's own status: success/failed/timeout/killed
+    error_summary: Optional[Dict[str, Any]] = None
 
 
 RUN_DB_PATH = Path(os.environ.get("WEBAPI_RUN_DB", PROJECT_ROOT / "WEBAPI" / "runs.db"))
@@ -101,18 +113,44 @@ class RunStore:
                     result_json TEXT,
                     error TEXT,
                     stdout TEXT,
-                    stderr TEXT
+                    stderr TEXT,
+                    correlation_id TEXT,
+                    run_status TEXT,
+                    error_summary_json TEXT
                 )
                 """
             )
+            # Add new columns to existing databases (idempotent).
+            # Column names and types are sourced from a hardcoded list only—never
+            # from user input—so the f-string usage below is safe.
+            _NEW_COLS: List[tuple] = [
+                ("correlation_id", "TEXT"),
+                ("run_status", "TEXT"),
+                ("error_summary_json", "TEXT"),
+            ]
+            _ALLOWED_COLS = frozenset(col for col, _ in _NEW_COLS)
+            for col, typedef in _NEW_COLS:
+                assert col in _ALLOWED_COLS  # guard against accidental expansion
+                try:
+                    conn.execute(f"ALTER TABLE runs ADD COLUMN {col} {typedef}")  # noqa: S608
+                except sqlite3.OperationalError:
+                    pass  # column already exists
             conn.commit()
 
     def upsert(self, record: RunRecord) -> None:
         with self._lock, self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO runs (id, status, started_at, finished_at, request_json, result_json, error, stdout, stderr)
-                VALUES (:id, :status, :started_at, :finished_at, :request_json, :result_json, :error, :stdout, :stderr)
+                INSERT INTO runs (
+                    id, status, started_at, finished_at, request_json,
+                    result_json, error, stdout, stderr,
+                    correlation_id, run_status, error_summary_json
+                )
+                VALUES (
+                    :id, :status, :started_at, :finished_at, :request_json,
+                    :result_json, :error, :stdout, :stderr,
+                    :correlation_id, :run_status, :error_summary_json
+                )
                 ON CONFLICT(id) DO UPDATE SET
                     status=excluded.status,
                     started_at=excluded.started_at,
@@ -121,7 +159,10 @@ class RunStore:
                     result_json=excluded.result_json,
                     error=excluded.error,
                     stdout=excluded.stdout,
-                    stderr=excluded.stderr
+                    stderr=excluded.stderr,
+                    correlation_id=excluded.correlation_id,
+                    run_status=excluded.run_status,
+                    error_summary_json=excluded.error_summary_json
                 """,
                 {
                     "id": record.id,
@@ -133,6 +174,9 @@ class RunStore:
                     "error": record.error,
                     "stdout": record.result.get("stdout") if record.result else None,
                     "stderr": record.result.get("stderr") if record.result else None,
+                    "correlation_id": record.correlation_id,
+                    "run_status": record.run_status,
+                    "error_summary_json": json.dumps(record.error_summary) if record.error_summary else None,
                 },
             )
             conn.commit()
@@ -157,6 +201,13 @@ class RunStore:
         return [self._row_to_record(row) for row in rows]
 
     def _row_to_record(self, row: sqlite3.Row) -> RunRecord:
+        keys = row.keys()
+        error_summary = None
+        if "error_summary_json" in keys and row["error_summary_json"]:
+            try:
+                error_summary = json.loads(row["error_summary_json"])
+            except Exception:
+                pass
         return RunRecord(
             id=row["id"],
             status=row["status"],
@@ -165,6 +216,9 @@ class RunStore:
             request=RunRequest.parse_raw(row["request_json"]),
             result=json.loads(row["result_json"]) if row["result_json"] else None,
             error=row["error"],
+            correlation_id=row["correlation_id"] if "correlation_id" in keys else None,
+            run_status=row["run_status"] if "run_status" in keys else None,
+            error_summary=error_summary,
         )
 
     def get_logs(self, run_id: str) -> Optional[Dict[str, Optional[str]]]:
@@ -199,10 +253,11 @@ class RunStore:
         }
 
 
-app = FastAPI(title="Script Runner Web API", version="1.2.0")
+app = FastAPI(title="Script Runner Web API", version="1.3.0")
 
 RUNS: Dict[str, RunRecord] = {}
 RUNS_LOCK = threading.Lock()
+# RUN_HANDLES stores: {"cancel_event": Event, "runner": ScriptRunner|None}
 RUN_HANDLES: Dict[str, Dict[str, Any]] = {}
 RUN_STORE = RunStore(RUN_DB_PATH)
 
@@ -292,7 +347,7 @@ def delete_runs(run_ids: List[str] = Body(...)) -> Dict[str, int]:
 
 
 def _execute_run(run_id: str, payload: RunRequest, cancel_event: threading.Event) -> None:
-    """Worker that executes the script and updates the run registry."""
+    """Worker that executes the script via ScriptRunner and updates the run registry."""
 
     started_at = datetime.utcnow()
     with RUNS_LOCK:
@@ -305,111 +360,63 @@ def _execute_run(run_id: str, payload: RunRequest, cancel_event: threading.Event
         )
     RUN_STORE.upsert(RUNS[run_id])
 
-    json_output_path = UPLOAD_DIR / f"{run_id}_metrics.json.gz"
-    stdout_path = UPLOAD_DIR / f"{run_id}.stdout"
-    stderr_path = UPLOAD_DIR / f"{run_id}.stderr"
-
     try:
-        # Build command to run runner.py
-        cmd = [sys.executable, "-u", str(PROJECT_ROOT / "runner.py")]
-        
-        if payload.timeout:
-            cmd.extend(["--timeout", str(payload.timeout)])
-        
-        cmd.extend(["--log-level", payload.log_level])
-        
-        if payload.history_db:
-            cmd.extend(["--history-db", payload.history_db])
-            
-        if not payload.enable_history:
-            cmd.append("--disable-history")
-            
-        if payload.retry_on_failure:
-            cmd.extend(["--retry", "3"])
-
-        # Use JSON output to capture metrics
-        cmd.extend(["--json-output", str(json_output_path)])
-
-        # Script and args
-        cmd.append(payload.script_path)
-        cmd.extend(payload.args)
-
         if cancel_event.is_set():
             raise RuntimeError("Run cancelled before start")
 
-        # Prepare environment
-        run_env = os.environ.copy()
-        run_env.update(payload.env_vars)
-
-        with open(stdout_path, "w") as f_out, open(stderr_path, "w") as f_err:
-            process = subprocess.Popen(
-                cmd,
-                stdout=f_out,
-                stderr=f_err,
-                text=True,
-                cwd=PROJECT_ROOT,
-                env=run_env
-            )
-            
-            RUN_HANDLES[run_id]["process"] = process
-
-            # Wait for completion or cancellation
-            while process.poll() is None:
-                if cancel_event.is_set():
-                    process.terminate()
-                    try:
-                        process.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                    raise RuntimeError("Run cancelled by user")
-                threading.Event().wait(0.1) # Sleep briefly
-
-        stdout = ""
-        stderr = ""
-        if stdout_path.exists():
-            stdout = stdout_path.read_text(errors="replace")[:_MAX_OUTPUT_SIZE]
-        if stderr_path.exists():
-            stderr = stderr_path.read_text(errors="replace")[:_MAX_OUTPUT_SIZE]
-
-        returncode = process.returncode
-
-        # Read metrics from JSON output
-        metrics = {}
-        if json_output_path.exists():
-            try:
-                with gzip.open(json_output_path, 'rt') as f:
-                    metrics = json.load(f)
-                json_output_path.unlink()
-            except Exception as e:
-                print(f"Failed to read metrics: {e}")
-
-        result = {
-            "returncode": returncode,
-            "stdout": stdout,
-            "stderr": stderr,
-            "metrics": metrics
+        # Filter dangerous env vars before passing to ScriptRunner
+        safe_env_vars = {
+            k: v for k, v in payload.env_vars.items()
+            if k not in _DANGEROUS_ENV_VARS
         }
 
+        runner = ScriptRunner(
+            str(_validate_script_path(payload.script_path)),
+            script_args=payload.args,
+            timeout=payload.timeout,
+            log_level=payload.log_level,
+            history_db=payload.history_db,
+            enable_history=payload.enable_history,
+            working_dir=payload.working_dir,
+            env_vars=safe_env_vars,
+            stream_output=payload.stream_output,
+        )
+
+        with RUNS_LOCK:
+            if run_id in RUN_HANDLES:
+                RUN_HANDLES[run_id]["runner"] = runner
+
+        result = runner.run_script(retry_on_failure=payload.retry_on_failure)
+
+        correlation_id: Optional[str] = result.get("correlation_id")
+        run_status: Optional[str] = result.get("status")
+        error_summary: Optional[Dict] = result.get("error_summary")
+        returncode: int = result.get("returncode", -1)
+
         if cancel_event.is_set():
-            status = "cancelled"
+            job_status = "cancelled"
             error = "Run cancelled by user"
         else:
-            status = "completed" if returncode == 0 else "failed"
+            job_status = "completed" if returncode == 0 else "failed"
             error = None
-            
+
         finished_at = datetime.utcnow()
         record = RunRecord(
             id=run_id,
-            status=status,
+            status=job_status,
             started_at=started_at,
             finished_at=finished_at,
             request=payload,
             result=result,
             error=error,
+            correlation_id=correlation_id,
+            run_status=run_status,
+            error_summary=error_summary,
         )
         with RUNS_LOCK:
             RUNS[run_id] = record
         RUN_STORE.upsert(record)
+
     except Exception as exc:  # pragma: no cover - best effort logging
         finished_at = datetime.utcnow()
         record = RunRecord(
@@ -426,12 +433,6 @@ def _execute_run(run_id: str, payload: RunRequest, cancel_event: threading.Event
         RUN_STORE.upsert(record)
     finally:
         RUN_HANDLES.pop(run_id, None)
-        for p in [json_output_path, stdout_path, stderr_path]:
-            if p.exists():
-                try:
-                    p.unlink()
-                except OSError:
-                    pass
 
 
 def _validate_script_path(path_str: str) -> Path:
@@ -473,6 +474,11 @@ def _validate_payload(payload: RunRequest) -> RunRequest:
         k: v for k, v in payload.env_vars.items()
         if k not in _DANGEROUS_ENV_VARS
     }
+    # Validate working_dir if provided
+    if payload.working_dir is not None:
+        wd = Path(payload.working_dir)
+        if not wd.is_dir():
+            raise HTTPException(status_code=400, detail="working_dir must be an existing directory")
     return payload
 
 
@@ -490,7 +496,7 @@ def _queue_run(payload: RunRequest, background_tasks: BackgroundTasks) -> Dict[s
     cancel_event = threading.Event()
     with RUNS_LOCK:
         RUNS[run_id] = record
-    RUN_HANDLES[run_id] = {"cancel_event": cancel_event, "process": None}
+    RUN_HANDLES[run_id] = {"cancel_event": cancel_event, "runner": None}
     RUN_STORE.upsert(record)
 
     background_tasks.add_task(_execute_run, run_id, payload, cancel_event)
@@ -514,6 +520,8 @@ def trigger_run_upload(
     log_level: str = Form("INFO"),
     retry_on_failure: bool = Form(False),
     env_vars: str = Form("{}"),
+    working_dir: Optional[str] = Form(None),
+    stream_output: bool = Form(False),
 ) -> Dict[str, str]:
     """Upload a script and queue execution."""
     if not file.filename.endswith(('.py', '.pyw')):
@@ -542,7 +550,9 @@ def trigger_run_upload(
         timeout=timeout,
         log_level=log_level,
         retry_on_failure=retry_on_failure,
-        env_vars=env_vars_dict
+        env_vars=env_vars_dict,
+        working_dir=working_dir,
+        stream_output=stream_output,
     )
 
     payload = _validate_payload(payload)
@@ -586,9 +596,9 @@ def cancel_run(run_id: str) -> Dict[str, str]:
         raise HTTPException(status_code=409, detail="Run already finished")
     if handle:
         handle["cancel_event"].set()
-        process = handle.get("process")
-        if process:
-            process.terminate()
+        runner: Optional[ScriptRunner] = handle.get("runner")
+        if runner:
+            runner.stop()
     finished_at = datetime.utcnow()
     updated = RunRecord(
         id=record.id,
@@ -598,6 +608,9 @@ def cancel_run(run_id: str) -> Dict[str, str]:
         request=record.request,
         result=record.result,
         error="Run cancelled by user",
+        correlation_id=record.correlation_id,
+        run_status=record.run_status,
+        error_summary=record.error_summary,
     )
     with RUNS_LOCK:
         RUNS[run_id] = updated
@@ -605,22 +618,138 @@ def cancel_run(run_id: str) -> Dict[str, str]:
     return {"run_id": run_id, "status": "cancelled"}
 
 
+@app.post("/api/runs/{run_id}/stop")
+def stop_run(run_id: str) -> Dict[str, str]:
+    """Send a graceful stop signal to the running script process.
+
+    Sets the runner's internal stop event (watchdog picks it up) and
+    terminates the process tree.  Use this for a clean, user-triggered
+    interruption.  If the run is already finished, returns 409.
+    """
+    with RUNS_LOCK:
+        record = RUNS.get(run_id)
+    if not record:
+        record = RUN_STORE.get(run_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if record.status not in {"queued", "running"}:
+        raise HTTPException(status_code=409, detail="Run is not active")
+
+    handle = RUN_HANDLES.get(run_id)
+    stopped = False
+    if handle:
+        runner: Optional[ScriptRunner] = handle.get("runner")
+        if runner:
+            stopped = runner.stop()
+        else:
+            handle["cancel_event"].set()
+
+    return {"run_id": run_id, "stopped": stopped}
+
+
+@app.post("/api/runs/{run_id}/kill")
+def kill_run(run_id: str) -> Dict[str, str]:
+    """Forcefully kill the running script and all child processes.
+
+    Unlike ``/stop``, this does not set the stop event first; it
+    immediately delivers SIGKILL to the entire process group.
+    """
+    with RUNS_LOCK:
+        record = RUNS.get(run_id)
+    if not record:
+        record = RUN_STORE.get(run_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if record.status not in {"queued", "running"}:
+        raise HTTPException(status_code=409, detail="Run is not active")
+
+    handle = RUN_HANDLES.get(run_id)
+    killed = False
+    if handle:
+        runner: Optional[ScriptRunner] = handle.get("runner")
+        if runner:
+            killed = runner.kill()
+        else:
+            handle["cancel_event"].set()
+
+    return {"run_id": run_id, "killed": killed}
+
+
+@app.post("/api/runs/{run_id}/restart", status_code=202)
+def restart_run(run_id: str, background_tasks: BackgroundTasks) -> Dict[str, str]:
+    """Stop the current run (if active) and queue a fresh execution with the same parameters.
+
+    The original run record is marked as ``cancelled`` (if still active) and
+    a brand-new run record is created with the same ``RunRequest``.
+    """
+    with RUNS_LOCK:
+        record = RUNS.get(run_id)
+    if not record:
+        record = RUN_STORE.get(run_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    # Stop the existing run if still active
+    if record.status in {"queued", "running"}:
+        handle = RUN_HANDLES.get(run_id)
+        if handle:
+            handle["cancel_event"].set()
+            runner: Optional[ScriptRunner] = handle.get("runner")
+            if runner:
+                runner.stop()
+        finished_at = datetime.utcnow()
+        cancelled = RunRecord(
+            id=record.id,
+            status="cancelled",
+            started_at=record.started_at,
+            finished_at=finished_at,
+            request=record.request,
+            result=record.result,
+            error="Cancelled by restart",
+            correlation_id=record.correlation_id,
+            run_status=record.run_status,
+            error_summary=record.error_summary,
+        )
+        with RUNS_LOCK:
+            RUNS[run_id] = cancelled
+        RUN_STORE.upsert(cancelled)
+
+    # Queue a new run with the same payload
+    return _queue_run(record.request, background_tasks)
+
+
+@app.get("/api/runs/{run_id}/events")
+def get_run_events(run_id: str) -> List[Dict[str, Any]]:
+    """Return the structured execution events recorded by StructuredLogger for a run.
+
+    Events are stored on the ``ScriptRunner.structured_logger`` while the job
+    is running.  Once the job finishes the events are embedded in the result
+    metrics (``result.metrics.events``) if available.  Returns an empty list
+    if the run is not found or has no events.
+    """
+    # Check in-memory handle first (for live/active runs)
+    handle = RUN_HANDLES.get(run_id)
+    if handle:
+        runner: Optional[ScriptRunner] = handle.get("runner")
+        if runner:
+            return runner.structured_logger.get_logs()
+
+    # For completed runs, events may be embedded in the stored result
+    with RUNS_LOCK:
+        record = RUNS.get(run_id)
+    if not record:
+        record = RUN_STORE.get(run_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    if record.result and isinstance(record.result.get("metrics"), dict):
+        return record.result["metrics"].get("events", [])
+
+    return []
+
+
 @app.get("/api/runs/{run_id}/logs")
 def get_run_logs(run_id: str) -> StreamingResponse:
-    # Check for live log files first
-    stdout_path = UPLOAD_DIR / f"{run_id}.stdout"
-    stderr_path = UPLOAD_DIR / f"{run_id}.stderr"
-    
-    if stdout_path.exists() or stderr_path.exists():
-        def stream_live() -> Any:
-            if stdout_path.exists():
-                yield stdout_path.read_text(errors="replace")
-            if stderr_path.exists():
-                err = stderr_path.read_text(errors="replace")
-                if err:
-                    yield "\n--- STDERR ---\n" + err
-        return StreamingResponse(stream_live(), media_type="text/plain")
-
     logs = RUN_STORE.get_logs(run_id)
     if logs is None:
         raise HTTPException(status_code=404, detail="Run not found")
@@ -665,3 +794,4 @@ if __name__ == "__main__":
         port=args.port,
         reload=False,
     )
+
