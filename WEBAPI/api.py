@@ -44,26 +44,50 @@ class RunRequest(BaseModel):
     args: List[str] = Field(default_factory=list, description="Arguments passed to the script")
     timeout: Optional[int] = Field(None, description="Optional timeout in seconds")
     log_level: str = Field("INFO", description="Logging level for the ScriptRunner")
-    retry_on_failure: bool = Field(
-        False, description="Enable ScriptRunner retry configuration during execution"
+    retry_on_failure: bool = Field(False, description="Enable retry on failure")
+    history_db: Optional[str] = Field(None, description="Optional override for the metrics history SQLite database")
+    enable_history: bool = Field(True, description="Persist run metrics to the configured SQLite database")
+    env_vars: Dict[str, str] = Field(default_factory=dict, description="Environment variables for the execution")
+    working_dir: Optional[str] = Field(None, description="Working directory for the script process")
+    stream_output: bool = Field(False, description="Stream stdout/stderr in real time")
+    enable_visualizer: bool = Field(False, description="Enable ExecutionVisualizer")
+    visualizer_format: str = Field("text", description="Visualizer format: 'text' or 'json'")
+
+    # Retry configuration
+    retry_max_attempts: int = Field(3, description="Maximum retry attempts")
+    retry_strategy: str = Field("exponential", description="Backoff strategy: linear, exponential, fibonacci, exponential_jitter")
+    retry_initial_delay: float = Field(1.0, description="Initial retry delay in seconds")
+    retry_max_delay: float = Field(60.0, description="Maximum retry delay in seconds")
+    retry_multiplier: float = Field(2.0, description="Multiplier for exponential backoff")
+    retry_max_time: float = Field(300.0, description="Maximum total time for all retries (seconds)")
+
+    # Monitor configuration
+    monitor_interval: float = Field(0.1, description="Process monitor sampling interval in seconds")
+
+    # CI/CD / Performance gates
+    performance_gates: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Performance gates list. Each entry: {metric, max_value?, min_value?}. E.g. [{metric:'cpu_max', max_value:90}]"
     )
-    history_db: Optional[str] = Field(
-        None, description="Optional override for the metrics history SQLite database"
+    junit_output: Optional[str] = Field(None, description="Path to write JUnit XML output")
+    save_baseline: Optional[str] = Field(None, description="Save current run metrics as baseline to this JSON file path")
+    load_baseline: Optional[str] = Field(None, description="Load baseline metrics from this JSON file path for comparison")
+
+    # Alert configuration
+    alerts: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Alerts to check after run. Each entry: {name, condition, channels:[email|slack|webhook], severity?}"
     )
-    enable_history: bool = Field(
-        True, description="Persist run metrics to the configured SQLite database"
-    )
-    env_vars: Dict[str, str] = Field(
-        default_factory=dict, description="Environment variables to set for the execution"
-    )
-    working_dir: Optional[str] = Field(
-        None,
-        description="Working directory for the script process. Defaults to the script's own directory.",
-    )
-    stream_output: bool = Field(
-        False,
-        description="Stream stdout/stderr to the runner logger in real time while also capturing them.",
-    )
+    slack_webhook: Optional[str] = Field(None, description="Slack webhook URL for alert notifications")
+
+    # Dry run
+    dry_run: bool = Field(False, description="Validate and show execution plan without running the script")
+
+    # v7 features
+    enable_code_analysis: bool = Field(False, description="Run code analysis / security scan before execution")
+    enable_secret_scanning: bool = Field(False, description="Scan script for hardcoded secrets before execution")
+    enable_dependency_scanning: bool = Field(False, description="Scan requirements.txt for vulnerabilities")
+    enable_cost_tracking: bool = Field(False, description="Enable cloud cost tracking during execution")
 
 
 class RunRecord(BaseModel):
@@ -117,7 +141,8 @@ class RunStore:
                     stderr TEXT,
                     correlation_id TEXT,
                     run_status TEXT,
-                    error_summary_json TEXT
+                    error_summary_json TEXT,
+                    visualization_report_json TEXT
                 )
                 """
             )
@@ -128,6 +153,7 @@ class RunStore:
                 ("correlation_id", "TEXT"),
                 ("run_status", "TEXT"),
                 ("error_summary_json", "TEXT"),
+                ("visualization_report_json", "TEXT"),
             ]
             _ALLOWED_COLS = frozenset(col for col, _ in _NEW_COLS)
             for col, typedef in _NEW_COLS:
@@ -145,12 +171,14 @@ class RunStore:
                 INSERT INTO runs (
                     id, status, started_at, finished_at, request_json,
                     result_json, error, stdout, stderr,
-                    correlation_id, run_status, error_summary_json
+                    correlation_id, run_status, error_summary_json,
+                    visualization_report_json
                 )
                 VALUES (
                     :id, :status, :started_at, :finished_at, :request_json,
                     :result_json, :error, :stdout, :stderr,
-                    :correlation_id, :run_status, :error_summary_json
+                    :correlation_id, :run_status, :error_summary_json,
+                    :visualization_report_json
                 )
                 ON CONFLICT(id) DO UPDATE SET
                     status=excluded.status,
@@ -163,7 +191,8 @@ class RunStore:
                     stderr=excluded.stderr,
                     correlation_id=excluded.correlation_id,
                     run_status=excluded.run_status,
-                    error_summary_json=excluded.error_summary_json
+                    error_summary_json=excluded.error_summary_json,
+                    visualization_report_json=excluded.visualization_report_json
                 """,
                 {
                     "id": record.id,
@@ -178,6 +207,9 @@ class RunStore:
                     "correlation_id": record.correlation_id,
                     "run_status": record.run_status,
                     "error_summary_json": json.dumps(record.error_summary) if record.error_summary else None,
+                    "visualization_report_json": json.dumps(
+                        record.result.get("visualization_report")
+                    ) if record.result and record.result.get("visualization_report") else None,
                 },
             )
             conn.commit()
@@ -228,6 +260,21 @@ class RunStore:
         if not row:
             return None
         return {"stdout": row["stdout"], "stderr": row["stderr"]}
+
+    def get_visualization(self, run_id: str) -> Optional[Dict[str, Any]]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT visualization_report_json FROM runs WHERE id = ?", (run_id,)
+            ).fetchone()
+        if not row:
+            return None
+        raw = row["visualization_report_json"] if "visualization_report_json" in row.keys() else None
+        if not raw:
+            return None
+        try:
+            return json.loads(raw)
+        except Exception:
+            return None
 
     def delete(self, run_id: str) -> bool:
         with self._lock, self._connect() as conn:
@@ -891,11 +938,173 @@ def _execute_run(run_id: str, payload: RunRequest, cancel_event: threading.Event
             stream_output=payload.stream_output,
         )
 
+        # --- Retry configuration ---
+        try:
+            from runner import RetryConfig
+            runner.retry_config = RetryConfig(
+                max_attempts=payload.retry_max_attempts,
+                strategy=payload.retry_strategy,
+                initial_delay=payload.retry_initial_delay,
+                max_delay=payload.retry_max_delay,
+                multiplier=payload.retry_multiplier,
+                max_total_time=payload.retry_max_time,
+            )
+        except Exception:
+            pass
+
+        # --- Monitor interval ---
+        if hasattr(runner, 'monitor_interval'):
+            runner.monitor_interval = payload.monitor_interval
+
+        # --- Execution Visualizer ---
+        if payload.enable_visualizer:
+            from runner import ExecutionVisualizer
+            runner.visualizer = ExecutionVisualizer(
+                enabled=True,
+                use_color=False,
+                output_format=payload.visualizer_format,
+            )
+
+        # --- Performance Gates (CI/CD) ---
+        if payload.performance_gates:
+            for gate in payload.performance_gates:
+                try:
+                    runner.cicd_integration.add_performance_gate(
+                        metric_name=gate.get("metric", ""),
+                        max_value=gate.get("max_value"),
+                        min_value=gate.get("min_value"),
+                    )
+                except Exception:
+                    pass
+
+        # --- Baseline loading ---
+        if payload.load_baseline:
+            try:
+                baseline_path = Path(payload.load_baseline)
+                if baseline_path.is_file():
+                    runner.cicd_integration.load_baseline(str(baseline_path))
+            except Exception:
+                pass
+
+        # --- Alerts ---
+        if payload.alerts:
+            for alert in payload.alerts:
+                try:
+                    runner.alert_manager.add_alert(
+                        name=alert.get("name", "api_alert"),
+                        condition=alert.get("condition", ""),
+                        channels=alert.get("channels", []),
+                        severity=alert.get("severity", "WARNING"),
+                    )
+                except Exception:
+                    pass
+            if payload.slack_webhook:
+                try:
+                    runner.alert_manager.notification_config["slack"]["webhook_url_env"] = None
+                    runner.alert_manager.notification_config["slack"]["webhook_url"] = payload.slack_webhook
+                except Exception:
+                    pass
+
+        # --- v7 features ---
+        if payload.enable_code_analysis:
+            runner.enable_code_analysis = True
+            try:
+                from runners.scanners.code_analyzer import CodeAnalyzer
+                runner.code_analyzer = CodeAnalyzer()
+            except Exception:
+                pass
+
+        if payload.enable_secret_scanning:
+            runner.enable_secret_scanning = True
+            try:
+                from runners.security.secret_scanner import SecretScanner
+                runner.secret_scanner = SecretScanner()
+            except Exception:
+                pass
+
+        if payload.enable_dependency_scanning:
+            runner.enable_dependency_scanning = True
+            try:
+                from runners.scanners.dependency_scanner import DependencyScanner
+                runner.dependency_scanner = DependencyScanner()
+            except Exception:
+                pass
+
         with RUNS_LOCK:
             if run_id in RUN_HANDLES:
                 RUN_HANDLES[run_id]["runner"] = runner
 
+        # --- Dry run ---
+        if payload.dry_run:
+            dry_result = {
+                "dry_run": True,
+                "script_path": payload.script_path,
+                "args": payload.args,
+                "timeout": payload.timeout,
+                "retry_config": {
+                    "strategy": payload.retry_strategy,
+                    "max_attempts": payload.retry_max_attempts,
+                    "initial_delay": payload.retry_initial_delay,
+                },
+                "performance_gates": payload.performance_gates,
+                "alerts": payload.alerts,
+                "visualizer": payload.enable_visualizer,
+                "monitor_interval": payload.monitor_interval,
+                "message": "Dry run: script validated but not executed.",
+            }
+            finished_at = datetime.utcnow()
+            record = RunRecord(
+                id=run_id,
+                status="completed",
+                started_at=started_at,
+                finished_at=finished_at,
+                request=payload,
+                result=dry_result,
+            )
+            with RUNS_LOCK:
+                RUNS[run_id] = record
+            RUN_STORE.upsert(record)
+            return
+
         result = runner.run_script(retry_on_failure=payload.retry_on_failure)
+
+        # --- Attach visualization report ---
+        if payload.enable_visualizer and runner.visualizer.enabled:
+            result["visualization_report"] = runner.visualizer.get_execution_report()
+
+        # --- Save baseline after run ---
+        if payload.save_baseline:
+            try:
+                metrics = result.get("metrics", {})
+                runner.cicd_integration.save_baseline(metrics, payload.save_baseline)
+                result["baseline_saved"] = payload.save_baseline
+            except Exception as exc:
+                result["baseline_save_error"] = str(exc)
+
+        # --- Performance gates result ---
+        if payload.performance_gates:
+            try:
+                gates_passed, gates_results = runner.cicd_integration.check_gates(result.get("metrics", {}))
+                result["performance_gates_passed"] = gates_passed
+                result["performance_gates_results"] = gates_results
+                if payload.junit_output:
+                    try:
+                        runner.cicd_integration.generate_junit_xml(
+                            result.get("metrics", {}), gates_results, payload.junit_output
+                        )
+                        result["junit_output"] = payload.junit_output
+                    except Exception:
+                        pass
+            except Exception as exc:
+                result["performance_gates_error"] = str(exc)
+
+        # --- Baseline comparison ---
+        if payload.load_baseline:
+            try:
+                comparison = runner.cicd_integration.compare_with_baseline(result.get("metrics", {}))
+                result["baseline_comparison"] = comparison
+            except Exception:
+                pass
 
         correlation_id: Optional[str] = result.get("correlation_id")
         run_status: Optional[str] = result.get("status")
@@ -906,7 +1115,9 @@ def _execute_run(run_id: str, payload: RunRequest, cancel_event: threading.Event
             job_status = "cancelled"
             error = "Run cancelled by user"
         else:
-            job_status = "completed" if returncode == 0 else "failed"
+            # If gates failed, mark as failed
+            gates_failed = payload.performance_gates and not result.get("performance_gates_passed", True)
+            job_status = "completed" if (returncode == 0 and not gates_failed) else "failed"
             error = None
 
         finished_at = datetime.utcnow()
@@ -1272,6 +1483,450 @@ def get_run_logs(run_id: str) -> StreamingResponse:
             yield "\n--- STDERR ---\n" + logs.get("stderr")
 
     return StreamingResponse(stream(), media_type="text/plain")
+
+
+@app.get("/api/runs/{run_id}/visualization")
+def get_run_visualization(run_id: str) -> Dict[str, Any]:
+    """Return the ExecutionVisualizer report for a completed run.
+
+    The report contains a ``header``, a list of ``steps`` with per-step timing,
+    and a ``footer`` summary.  Returns 404 if the run was not found, 422 if
+    the run did not have visualization enabled.
+    """
+    # Try in-memory first (active run)
+    with RUNS_LOCK:
+        handle = RUN_HANDLES.get(run_id)
+    if handle:
+        runner: Optional[ScriptRunner] = handle.get("runner")
+        if runner and runner.visualizer.enabled:
+            return runner.visualizer.get_execution_report()
+
+    # Fallback to persisted report
+    report = RUN_STORE.get_visualization(run_id)
+    if report is not None:
+        return report
+
+    # Check run exists at all
+    with RUNS_LOCK:
+        record = RUNS.get(run_id)
+    if not record:
+        record = RUN_STORE.get(run_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    # Also try pulling from the embedded result dict (in-memory completed runs)
+    if record.result and record.result.get("visualization_report"):
+        return record.result["visualization_report"]
+
+    raise HTTPException(
+        status_code=422,
+        detail="Visualization was not enabled for this run. Enable it via the 'enable_visualizer' option.",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Analytics API endpoints (HistoryManager, TrendAnalyzer, BenchmarkManager)
+# ---------------------------------------------------------------------------
+
+def _get_history_manager(history_db: Optional[str] = None) -> Any:
+    """Return a HistoryManager for the given DB path (or default)."""
+    from runner import HistoryManager
+    db = history_db or str(PROJECT_ROOT / "script_runner_history.db")
+    return HistoryManager(db_path=db)
+
+
+@app.get("/api/analytics/history")
+def analytics_history(
+    script_path: Optional[str] = Query(None, description="Filter by script path"),
+    days: int = Query(30, ge=1, le=365, description="Number of past days"),
+    limit: int = Query(100, ge=1, le=1000, description="Max records"),
+    history_db: Optional[str] = Query(None, description="Override history DB path"),
+) -> Dict[str, Any]:
+    """Return execution history from the runner.py HistoryManager."""
+    try:
+        hm = _get_history_manager(history_db)
+        history = hm.get_execution_history(script_path=script_path, limit=limit, days=days)
+        return {"items": history, "count": len(history), "days": days}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/analytics/history/stats")
+def analytics_history_stats(
+    history_db: Optional[str] = Query(None),
+) -> Dict[str, Any]:
+    """Return database statistics from HistoryManager."""
+    try:
+        hm = _get_history_manager(history_db)
+        stats = hm.get_database_stats()
+        return stats
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/analytics/trends")
+def analytics_trends(
+    metric: str = Query(..., description="Metric name to analyze, e.g. execution_time_seconds"),
+    script_path: Optional[str] = Query(None, description="Filter by script path"),
+    days: int = Query(30, ge=1, le=365),
+    history_db: Optional[str] = Query(None),
+) -> Dict[str, Any]:
+    """Return linear regression trend for a metric over time."""
+    try:
+        from runner import TrendAnalyzer
+        hm = _get_history_manager(history_db)
+        history = hm.get_execution_history(script_path=script_path, limit=500, days=days)
+        values: List[float] = []
+        for entry in history:
+            m = entry.get("metrics", {})
+            if isinstance(m, dict) and metric in m:
+                try:
+                    values.append(float(m[metric]))
+                except (TypeError, ValueError):
+                    pass
+        if len(values) < 2:
+            return {"metric": metric, "values": values, "trend": None, "message": "Not enough data points"}
+        analyzer = TrendAnalyzer()
+        trend = analyzer.calculate_linear_regression(values)
+        regression = analyzer.detect_regression(values)
+        return {
+            "metric": metric,
+            "script_path": script_path,
+            "days": days,
+            "value_count": len(values),
+            "values": values[-50:],  # last 50 for charting
+            "trend": trend,
+            "regression": regression,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/analytics/anomalies")
+def analytics_anomalies(
+    metric: str = Query(..., description="Metric name to check for anomalies"),
+    script_path: Optional[str] = Query(None),
+    days: int = Query(30, ge=1, le=365),
+    method: str = Query("iqr", description="Detection method: iqr, zscore, mad"),
+    history_db: Optional[str] = Query(None),
+) -> Dict[str, Any]:
+    """Detect anomalies in a metric using statistical methods."""
+    try:
+        from runner import TrendAnalyzer
+        hm = _get_history_manager(history_db)
+        history = hm.get_execution_history(script_path=script_path, limit=500, days=days)
+        values: List[float] = []
+        for entry in history:
+            m = entry.get("metrics", {})
+            if isinstance(m, dict) and metric in m:
+                try:
+                    values.append(float(m[metric]))
+                except (TypeError, ValueError):
+                    pass
+        if len(values) < 3:
+            return {"metric": metric, "anomalies": [], "message": "Not enough data points"}
+        analyzer = TrendAnalyzer()
+        anomalies = analyzer.detect_anomalies(values, method=method)
+        return {
+            "metric": metric,
+            "script_path": script_path,
+            "method": method,
+            "value_count": len(values),
+            "anomalies": anomalies,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/analytics/baseline")
+def analytics_baseline(
+    script_path: Optional[str] = Query(None),
+    metric: str = Query("execution_time_seconds", description="Metric to baseline"),
+    days: int = Query(30, ge=1, le=365),
+    method: str = Query("intelligent", description="Baseline method: percentile, iqr, intelligent"),
+    history_db: Optional[str] = Query(None),
+) -> Dict[str, Any]:
+    """Calculate performance baseline using BaselineCalculator."""
+    try:
+        from runner import BaselineCalculator
+        hm = _get_history_manager(history_db)
+        history = hm.get_execution_history(script_path=script_path, limit=500, days=days)
+        values: List[float] = []
+        for entry in history:
+            m = entry.get("metrics", {})
+            if isinstance(m, dict) and metric in m:
+                try:
+                    values.append(float(m[metric]))
+                except (TypeError, ValueError):
+                    pass
+            elif metric in entry:
+                try:
+                    values.append(float(entry[metric]))
+                except (TypeError, ValueError):
+                    pass
+        if not values:
+            return {"metric": metric, "baseline": None, "message": "No data found for this metric"}
+        calc = BaselineCalculator()
+        if method == "percentile":
+            result = calc.calculate_from_percentile(values, percentile=75)
+        elif method == "iqr":
+            result = calc.calculate_iqr_baseline(values) if hasattr(calc, 'calculate_iqr_baseline') else calc.calculate_intelligent_baseline(values)
+        else:  # intelligent
+            result = calc.calculate_intelligent_baseline(values)
+        result["metric"] = metric
+        result["data_points"] = len(values)
+        result["days"] = days
+        result["script_path"] = script_path
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+class ExportRequest(BaseModel):
+    format: str = Field("json", description="Export format: json or csv")
+    script_path: Optional[str] = Field(None)
+    metric_name: Optional[str] = Field(None)
+    start_date: Optional[str] = Field(None, description="ISO date string")
+    end_date: Optional[str] = Field(None, description="ISO date string")
+    history_db: Optional[str] = Field(None)
+
+
+@app.post("/api/analytics/export")
+def analytics_export(payload: ExportRequest) -> Any:
+    """Export metrics to CSV or JSON (downloads the file)."""
+    try:
+        from runner import DataExporter
+        hm = _get_history_manager(payload.history_db)
+        exporter = DataExporter(hm)
+        import tempfile, os as _os
+        tmp = tempfile.NamedTemporaryFile(suffix=f".{payload.format}", delete=False)
+        tmp.close()
+        if payload.format == "csv":
+            exporter.export_to_csv(
+                tmp.name,
+                script_path=payload.script_path,
+                metric_name=payload.metric_name,
+                start_date=payload.start_date,
+                end_date=payload.end_date,
+            )
+            media_type = "text/csv"
+        else:
+            exporter.export_to_json(
+                tmp.name,
+                script_path=payload.script_path,
+                metric_name=payload.metric_name,
+                start_date=payload.start_date,
+                end_date=payload.end_date,
+            )
+            media_type = "application/json"
+
+        def _file_iter(path: str):
+            with open(path, "rb") as f:
+                while True:
+                    chunk = f.read(65536)
+                    if not chunk:
+                        break
+                    yield chunk
+            _os.unlink(path)
+
+        filename = f"metrics_export.{payload.format}"
+        return StreamingResponse(
+            _file_iter(tmp.name),
+            media_type=media_type,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/analytics/benchmarks")
+def analytics_benchmarks(
+    name: Optional[str] = Query(None, description="Specific benchmark name"),
+) -> Dict[str, Any]:
+    """List benchmarks or versions of a specific benchmark."""
+    try:
+        from runner import BenchmarkManager
+        bm = BenchmarkManager()
+        return bm.list_benchmarks(benchmark_name=name)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+class BenchmarkCreate(BaseModel):
+    name: str = Field(..., description="Benchmark name")
+    script_path: Optional[str] = Field(None)
+    version_id: Optional[str] = Field(None)
+    notes: Optional[str] = Field(None)
+
+
+@app.post("/api/analytics/benchmarks", status_code=201)
+def create_benchmark(payload: BenchmarkCreate) -> Dict[str, Any]:
+    """Create a performance benchmark snapshot."""
+    try:
+        from runner import BenchmarkManager
+        bm = BenchmarkManager()
+        return bm.create_benchmark(
+            benchmark_name=payload.name,
+            script_path=payload.script_path,
+            version_id=payload.version_id,
+            notes=payload.notes,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/analytics/benchmarks/{name}/regressions")
+def benchmark_regressions(
+    name: str,
+    threshold: float = Query(10.0, description="Regression threshold percent"),
+) -> Dict[str, Any]:
+    """Detect performance regressions in benchmark history."""
+    try:
+        from runner import BenchmarkManager
+        bm = BenchmarkManager()
+        return bm.detect_regressions(benchmark_name=name, regression_threshold=threshold)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.delete("/api/analytics/cleanup")
+def analytics_cleanup(
+    days: int = Query(90, ge=1, description="Delete records older than this many days"),
+    history_db: Optional[str] = Query(None),
+) -> Dict[str, Any]:
+    """Delete old execution history records from the HistoryManager database."""
+    try:
+        hm = _get_history_manager(history_db)
+        hm.cleanup_old_data(days=days)
+        return {"status": "ok", "days_kept": days, "message": f"Deleted records older than {days} days"}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Scheduler API endpoints (TaskScheduler)
+# ---------------------------------------------------------------------------
+
+# In-memory scheduler (one global instance for the API process)
+_SCHEDULER: Optional[Any] = None
+_SCHEDULER_LOCK = threading.Lock()
+
+
+def _get_scheduler() -> Any:
+    global _SCHEDULER
+    with _SCHEDULER_LOCK:
+        if _SCHEDULER is None:
+            from runner import TaskScheduler
+            _SCHEDULER = TaskScheduler()
+    return _SCHEDULER
+
+
+class ScheduledTaskCreate(BaseModel):
+    task_id: str = Field(..., description="Unique task identifier")
+    script_path: str = Field(..., description="Script to execute")
+    schedule: Optional[str] = Field(None, description="Simple schedule string, e.g. 'every 5 minutes'")
+    cron_expr: Optional[str] = Field(None, description="Cron expression, e.g. '*/5 * * * *'")
+    script_args: List[str] = Field(default_factory=list)
+    dependencies: List[str] = Field(default_factory=list, description="Task IDs that must complete first")
+
+
+@app.get("/api/scheduler/tasks")
+def list_scheduled_tasks() -> Dict[str, Any]:
+    """List all registered scheduled tasks."""
+    scheduler = _get_scheduler()
+    tasks = []
+    for tid, task in scheduler.tasks.items():
+        tasks.append({
+            "task_id": tid,
+            "script_path": task.script_path,
+            "schedule": getattr(task, "schedule", None),
+            "cron_expr": getattr(task, "cron_expr", None),
+            "enabled": getattr(task, "enabled", True),
+            "last_run": task.last_run.isoformat() if task.last_run else None,
+            "next_run": task.next_run.isoformat() if task.next_run else None,
+            "last_status": getattr(task, "last_status", None),
+            "run_count": getattr(task, "run_count", 0),
+            "script_args": getattr(task, "script_args", []),
+            "dependencies": getattr(task, "dependencies", []),
+        })
+    return {"tasks": tasks, "count": len(tasks)}
+
+
+@app.post("/api/scheduler/tasks", status_code=201)
+def create_scheduled_task(payload: ScheduledTaskCreate) -> Dict[str, Any]:
+    """Register a new scheduled task."""
+    try:
+        _validate_script_path(payload.script_path)
+    except HTTPException as exc:
+        raise exc
+    scheduler = _get_scheduler()
+    if payload.task_id in scheduler.tasks:
+        raise HTTPException(status_code=409, detail="Task ID already exists")
+    task = scheduler.add_scheduled_task(
+        task_id=payload.task_id,
+        script_path=payload.script_path,
+        schedule=payload.schedule,
+        cron_expr=payload.cron_expr,
+        script_args=payload.script_args,
+        dependencies=payload.dependencies,
+    )
+    return {
+        "task_id": task.task_id,
+        "script_path": task.script_path,
+        "next_run": task.next_run.isoformat() if task.next_run else None,
+        "message": "Task registered",
+    }
+
+
+@app.delete("/api/scheduler/tasks/{task_id}")
+def delete_scheduled_task(task_id: str) -> Dict[str, bool]:
+    """Remove a scheduled task."""
+    scheduler = _get_scheduler()
+    if task_id not in scheduler.tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+    del scheduler.tasks[task_id]
+    return {"success": True}
+
+
+@app.post("/api/scheduler/tasks/{task_id}/run", status_code=202)
+def run_scheduled_task_now(task_id: str, background_tasks: BackgroundTasks) -> Dict[str, str]:
+    """Trigger a scheduled task immediately."""
+    scheduler = _get_scheduler()
+    if task_id not in scheduler.tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+    task = scheduler.tasks[task_id]
+    payload = RunRequest(script_path=task.script_path, args=getattr(task, "script_args", []))
+    try:
+        payload = _validate_payload(payload)
+    except HTTPException:
+        raise
+    return _queue_run(payload, background_tasks)
+
+
+@app.post("/api/scheduler/events/{event_name}")
+def trigger_scheduler_event(event_name: str) -> Dict[str, Any]:
+    """Trigger a named scheduler event and return the list of associated task IDs."""
+    scheduler = _get_scheduler()
+    tasks = scheduler.trigger_event(event_name)
+    return {"event": event_name, "triggered_tasks": tasks}
+
+
+@app.get("/api/scheduler/due")
+def get_due_tasks() -> Dict[str, Any]:
+    """Return tasks that are currently due for execution."""
+    scheduler = _get_scheduler()
+    due = scheduler.get_due_tasks()
+    return {
+        "due_tasks": [
+            {
+                "task_id": t.task_id,
+                "script_path": t.script_path,
+                "next_run": t.next_run.isoformat() if t.next_run else None,
+            }
+            for t in due
+        ],
+        "count": len(due),
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -8,6 +8,11 @@ visualization including computation, I/O operations, and resource usage.
 
 import time
 import sys
+import io
+
+# Ensure UTF-8 output encoding on all platforms (including Windows)
+if sys.stdout.encoding.lower() not in ('utf-8', 'utf8'):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', line_buffering=True)
 
 def compute_fibonacci(n):
     """Compute fibonacci numbers to stress CPU."""

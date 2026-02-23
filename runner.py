@@ -8305,6 +8305,141 @@ def save_metrics_optimized(metrics: Dict, output_file: str, compress: bool = Tru
 # COMMAND LINE INTERFACE
 # ============================================================================
 
+def print_usage_help():
+    """Print a structured, categorized usage reference guide."""
+    ver = globals().get('__version__', '7.x')
+
+    # Detect whether the terminal supports ANSI colour codes.
+    import os as _os
+    _use_colour = (
+        hasattr(sys.stdout, 'isatty') and sys.stdout.isatty()
+        and _os.environ.get('NO_COLOR') is None
+        and _os.environ.get('TERM') != 'dumb'
+    )
+    if _use_colour:
+        W = '\033[0m'
+        B = '\033[1m'
+        C = '\033[96m'
+        G = '\033[92m'
+        Y = '\033[93m'
+        D = '\033[90m'
+    else:
+        W = B = C = G = Y = D = ''
+
+    def _pr(text):
+        # Write bytes directly to avoid codec errors on Windows cp1252 consoles
+        sys.stdout.buffer.write((text + '\n').encode('utf-8', errors='replace'))
+
+    def sec(name):
+        _pr(f"\n{B}{C}  --- {name} ---{W}")
+
+    def opt(flag, desc, default=None):
+        flag_fmt = f"{G}{flag:<35}{W}"
+        default_str = f"  {D}(default: {default}){W}" if default else ''
+        _pr(f"    {flag_fmt} {desc}{default_str}")
+
+    _pr(f"\n{B}{'='*62}{W}")
+    _pr(f"{B}  Python Script Runner v{ver} - Quick Reference{W}")
+    _pr(f"{B}{'='*62}{W}")
+
+    _pr(f"\n{B}USAGE:{W}")
+    _pr(f"    {G}python runner.py <script.py> [OPTIONS] [-- script_args...]{W}")
+    _pr(f"\n{B}QUICK EXAMPLES:{W}")
+    _pr(f"    {G}python runner.py script.py{W}                        # basic run")
+    _pr(f"    {G}python runner.py script.py --timeout 60{W}           # with timeout")
+    _pr(f"    {G}python runner.py script.py --retry 3{W}              # auto-retry")
+    _pr(f"    {G}python runner.py script.py --visualize{W}            # execution flow")
+    _pr(f"    {G}python runner.py --show-history{W}                   # recent runs")
+    _pr(f"    {G}python runner.py --db-stats{W}                       # database stats")
+
+    sec("CORE")
+    opt("script.py",                          "Script to execute (positional)")
+    opt("--timeout N",                        "Kill script after N seconds")
+    opt("--log-level LEVEL",                  "DEBUG|INFO|WARNING|ERROR", "INFO")
+    opt("--dry-run",                          "Parse & validate without executing")
+    opt("--visualize",                        "Print ASCII execution flow after run")
+    opt("--config FILE",                      "YAML config file path")
+    opt("--",                                 "Separator: everything after goes to script")
+
+    sec("RETRY")
+    opt("--retry N",                          "Max retry attempts on failure")
+    opt("--retry-strategy STRATEGY",          "linear|exponential|fibonacci", "linear")
+    opt("--retry-delay N",                    "Base delay between retries (seconds)", "1")
+    opt("--retry-max-delay N",                "Cap on retry delay (seconds)")
+    opt("--retry-max-time N",                 "Total time budget for retries (seconds)")
+
+    sec("CI/CD & PERFORMANCE GATES")
+    opt("--add-gate 'metric op value'",       "Add a performance gate (repeatable)")
+    opt("--junit-output FILE",                "Write JUnit XML results to FILE")
+    opt("--tap-output FILE",                  "Write TAP results to FILE")
+    opt("--baseline FILE",                    "Compare against baseline JSON")
+    opt("--save-baseline FILE",               "Save metrics as baseline JSON")
+
+    sec("HISTORY & DATABASE")
+    opt("--show-history",                     "Print recent execution history")
+    opt("--db-stats",                         "Print database statistics")
+    opt("--history-db FILE",                  "Path to SQLite database file")
+    opt("--history-days N",                   "Days to look back in history", "30")
+    opt("--disable-history",                  "Skip writing metrics to DB")
+    opt("--cleanup-old N",                    "Delete records older than N days")
+
+    sec("TREND ANALYSIS & ANOMALIES")
+    opt("--analyze-trend METRIC",             "Run trend analysis on a metric")
+    opt("--detect-anomalies METRIC",          "Detect anomalies in a metric")
+    opt("--anomaly-method METHOD",            "iqr|zscore|mad", "iqr")
+    opt("--calculate-baseline METRIC",        "Calculate statistical baseline")
+    opt("--anomaly-sensitivity N",            "Sensitivity multiplier", "1.5")
+
+    sec("EXPORT & RETENTION")
+    opt("--export-format FORMAT",             "csv|json|html|pdf")
+    opt("--export-output FILE",               "Output file for export")
+    opt("--export-script SCRIPT",             "Script to export history for")
+    opt("--add-retention-policy NAME",        "Add named retention policy")
+    opt("--retention-days N",                 "Days to keep for policy")
+    opt("--apply-retention-policy",           "Apply all configured policies")
+
+    sec("DASHBOARD")
+    opt("--dashboard",                        "Launch web dashboard")
+    opt("--dashboard-port N",                 "Dashboard listen port", "8000")
+    opt("--dashboard-host HOST",              "Dashboard bind address", "0.0.0.0")
+
+    sec("ALERTING")
+    opt("--alert-config FILE",                "YAML alert rules config")
+    opt("--slack-webhook URL",                "Slack webhook for alert notifications")
+    opt("--email-config FILE",                "YAML email notification config")
+
+    sec("SCHEDULER")
+    opt("--add-scheduled-task NAME",          "Add a scheduled task")
+    opt("--schedule INTERVAL",                "Interval for scheduled task (e.g. 1h)")
+    opt("--cron EXPR",                        "Cron expression for scheduling")
+    opt("--list-scheduled-tasks",             "List all scheduled tasks")
+    opt("--trigger-event EVENT",              "Fire a named workflow event")
+
+    sec("REMOTE / DOCKER / KUBERNETES")
+    opt("--ssh-host HOST",                    "Execute script on remote host via SSH")
+    opt("--docker-image IMAGE",               "Run script inside Docker container")
+    opt("--k8s-namespace NS",                 "Run script as Kubernetes Job")
+
+    sec("BENCHMARKS & FORECASTING")
+    opt("--create-benchmark NAME",            "Create a new benchmark suite")
+    opt("--list-benchmarks",                  "List all benchmark suites")
+    opt("--compare-benchmarks A B",           "Compare two benchmark results")
+    opt("--detect-regressions",               "Flag performance regressions")
+    opt("--forecast-resource METRIC",         "Forecast future resource usage")
+    opt("--predict-sla",                      "Predict SLA compliance probability")
+    opt("--estimate-capacity N",              "Estimate runs-per-hour capacity")
+
+    sec("PROFILING & CODE ANALYSIS (v7)")
+    opt("--profile",                          "Enable advanced CPU+memory profiler")
+    opt("--scan-code",                        "Run static code analysis")
+    opt("--scan-dependencies",                "Audit Python dependencies")
+    opt("--scan-secrets",                     "Scan for secrets/credentials in script")
+    opt("--enable-otel",                      "Enable OpenTelemetry tracing")
+
+    _pr(f"\n{B}For full flag reference:{W}  {G}python runner.py --help{W}")
+    _pr(f"{B}Documentation:{W}             {G}https://github.com/your-org/python-script-runner{W}\n")
+
+
 def main():
     """Main entry point with comprehensive CLI support"""
     parser = argparse.ArgumentParser(
@@ -8334,6 +8469,9 @@ Examples:
     parser.add_argument('--timeout', type=int, default=None, help='Execution timeout in seconds')
     parser.add_argument('--log-level', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
                        default='INFO', help='Logging level')
+    parser.add_argument('--version', '-V', action='version',
+                       version=f'%(prog)s {__version__}',
+                       help='Show version and exit')
     parser.add_argument('--dry-run', action='store_true',
                        help='Validate the script and show execution plan without running it')
     parser.add_argument('--visualize', action='store_true',
@@ -9660,7 +9798,8 @@ Examples:
         
         # For normal script execution, require script argument
         if not args.script:
-            parser.error("Script argument is required. Use --db-stats or --show-history for database operations without a script.")
+            print_usage_help()
+            sys.exit(0)
         
         # Create runner
         runner = ScriptRunner(
@@ -9748,6 +9887,32 @@ Examples:
             runner.cicd_integration.load_baseline(args.baseline)
 
         # Run the script
+        # --- startup banner (stderr, swallowed gracefully on encoding errors) ---
+        try:
+            _tty = hasattr(sys.stderr, 'isatty') and sys.stderr.isatty()
+            _B = '\033[1m' if _tty else ''
+            _G = '\033[92m' if _tty else ''
+            _Y = '\033[93m' if _tty else ''
+            _D = '\033[90m' if _tty else ''
+            _W = '\033[0m'  if _tty else ''
+            _script_name = os.path.basename(args.script)
+            _flags = []
+            if args.timeout:     _flags.append(f"timeout={args.timeout}s")
+            if args.retry > 0:   _flags.append(f"retry={args.retry}x/{args.retry_strategy}")
+            if args.dry_run:     _flags.append("dry-run")
+            if args.visualize:   _flags.append("visualize")
+            _flags_str = ('  |  '.join(_flags)) if _flags else ''
+            _sep = '-' * 58
+            _banner = (
+                f"\n{_B}{_sep}{_W}\n"
+                f"  {_B}{_G}>> {_script_name}{_W}"
+                + (f"   {_D}{_flags_str}{_W}" if _flags_str else '') + "\n"
+                f"{_B}{_sep}{_W}\n"
+            )
+            sys.stderr.buffer.write(_banner.encode('utf-8', errors='replace'))
+            sys.stderr.flush()
+        except Exception:
+            pass
         result = runner.run_script(retry_on_failure=args.retry > 0)
 
         # Process results

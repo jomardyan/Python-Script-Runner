@@ -60,6 +60,8 @@ db.sqlite3-journal
 
 # Database files
 *.db
+*.db-shm
+*.db-wal
 script_runner_history.db
 metrics.db
 
