@@ -6981,7 +6981,6 @@ class ScriptRunner:
 
         # Threading primitives for lifecycle management
         self._stop_event = threading.Event()
-        self._kill_flag = threading.Event()  # set on forced/kill termination
 
         # Execution visualization
         self.visualizer = ExecutionVisualizer(enabled=False)
@@ -7427,7 +7426,6 @@ class ScriptRunner:
         """
         self.cancel_active_run()
         self._stop_event.clear()
-        self._kill_flag.clear()
         return self.run_script(retry_on_failure=retry_on_failure)
 
     def _emit_event(self, event_type: str, data: Dict) -> None:

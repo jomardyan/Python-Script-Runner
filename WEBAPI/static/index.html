@@ -854,6 +854,21 @@
         const runOption = document.getElementById('run-option');
         const toastEl = document.getElementById('toast');
 
+        /** HTML-escape a value for safe insertion into template literals. */
+        function esc(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        /** Return color only if it is a valid #RRGGBB hex string, else a safe default. */
+        function hexColor(c) {
+            return /^#[0-9A-Fa-f]{6}$/.test(c) ? c : '#6366f1';
+        }
+
         function addEnvVar() {
             const container = document.getElementById('env-vars-container');
             const div = document.createElement('div');
@@ -1079,23 +1094,28 @@
                     const duration = formatDuration(run.started_at, run.finished_at);
                     const args = (run.request.args || []).join(' ');
                     const canCancel = ['queued', 'running'].includes(run.status.toLowerCase());
-                    const corrId = run.correlation_id ? `<span class="code-pill" title="${run.correlation_id}">${run.correlation_id.slice(0, 8)}</span>` : '<span style="color:var(--text-muted)">—</span>';
-                    const runStatusBadge = run.run_status ? `<span class="status-badge status-${run.run_status}">${run.run_status}</span>` : '';
+                    // run.id is a UUID – escape for attribute safety anyway
+                    const safeId = esc(run.id);
+                    const corrId = run.correlation_id
+                        ? `<span class="code-pill" title="${esc(run.correlation_id)}">${esc(run.correlation_id.slice(0, 8))}</span>`
+                        : '<span style="color:var(--text-muted)">—</span>';
+                    const safeRunStatus = esc(run.run_status || '');
+                    const runStatusBadge = run.run_status ? `<span class="status-badge status-${safeRunStatus}">${safeRunStatus}</span>` : '';
                     
                     return `<tr>
-                        <td><span class="code-pill" title="${run.id}">${run.id.slice(0, 8)}</span></td>
+                        <td><span class="code-pill" title="${safeId}">${esc(run.id.slice(0, 8))}</span></td>
                         <td>${statusBadge(run.status)} ${runStatusBadge}</td>
-                        <td><div class="script-path" style="font-weight: 500;">${run.request.script_path}</div></td>
-                        <td class="hide-mobile"><div class="args-cell" style="color: var(--text-muted); font-size: 0.85rem;" title="${args}">${args || '—'}</div></td>
+                        <td><div class="script-path" style="font-weight: 500;">${esc(run.request.script_path)}</div></td>
+                        <td class="hide-mobile"><div class="args-cell" style="color: var(--text-muted); font-size: 0.85rem;" title="${esc(args)}">${esc(args) || '—'}</div></td>
                         <td class="hide-mobile" style="font-size: 0.85rem;">${started}</td>
                         <td class="hide-mobile" style="font-size: 0.85rem;">${duration}</td>
                         <td class="hide-mobile">${corrId}</td>
                         <td class="actions">
-                            <button class="btn btn-secondary btn-sm" onclick="viewLogs('${run.id}')">Logs</button>
-                            <button class="btn btn-secondary btn-sm" onclick="viewDetails('${run.id}')">Details</button>
-                            ${canCancel ? `<button class="btn btn-secondary btn-sm" style="color: var(--warning-text);" onclick="stopRun('${run.id}')" title="Graceful stop">Stop</button>` : ''}
-                            ${canCancel ? `<button class="btn btn-secondary btn-sm" style="color: var(--danger-text); border-color: var(--danger-bg);" onclick="killRun('${run.id}')" title="Force kill">Kill</button>` : ''}
-                            ${!canCancel ? `<button class="btn btn-secondary btn-sm" onclick="restartRun('${run.id}')" title="Re-run with same config">↺ Restart</button>` : ''}
+                            <button class="btn btn-secondary btn-sm" onclick="viewLogs('${safeId}')">Logs</button>
+                            <button class="btn btn-secondary btn-sm" onclick="viewDetails('${safeId}')">Details</button>
+                            ${canCancel ? `<button class="btn btn-secondary btn-sm" style="color: var(--warning-text);" onclick="stopRun('${safeId}')" title="Graceful stop">Stop</button>` : ''}
+                            ${canCancel ? `<button class="btn btn-secondary btn-sm" style="color: var(--danger-text); border-color: var(--danger-bg);" onclick="killRun('${safeId}')" title="Force kill">Kill</button>` : ''}
+                            ${!canCancel ? `<button class="btn btn-secondary btn-sm" onclick="restartRun('${safeId}')" title="Re-run with same config">↺ Restart</button>` : ''}
                         </td>
                     </tr>`;
                 }).join('');
@@ -1334,8 +1354,8 @@
                 container.innerHTML = roots.map(root => `
                     <div style="display:flex; align-items:center; gap:1rem; padding:0.75rem 0; border-bottom:1px solid var(--border-color);">
                         <div style="flex:1; min-width:0;">
-                            <div style="font-weight:600;">${root.name}</div>
-                            <div style="font-size:0.8rem; color:var(--text-muted); word-break:break-all;">${root.path}</div>
+                            <div style="font-weight:600;">${esc(root.name)}</div>
+                            <div style="font-size:0.8rem; color:var(--text-muted); word-break:break-all;">${esc(root.path)}</div>
                             <div style="font-size:0.75rem; color:var(--text-muted);">
                                 ${root.recursive ? '↳ recursive' : '↳ flat'} 
                                 ${root.last_scan_at ? '· Last scan: ' + new Date(root.last_scan_at).toLocaleString() : '· Never scanned'}
@@ -1421,12 +1441,13 @@
                     container.innerHTML = '<span style="color:var(--text-muted)">No tags yet.</span>';
                     return;
                 }
-                container.innerHTML = tags.map(t => `
-                    <span class="tag-pill" style="background:${t.color}22; color:${t.color}; border:1px solid ${t.color}44;">
-                        ${t.name} <small>(${t.script_count})</small>
-                        <button style="border:none;background:none;cursor:pointer;font-size:0.9rem;color:${t.color};" title="Delete" onclick="deleteTag(${t.id}, event)">×</button>
-                    </span>
-                `).join('');
+                container.innerHTML = tags.map(t => {
+                    const c = hexColor(t.color);
+                    return `<span class="tag-pill" style="background:${c}22; color:${c}; border:1px solid ${c}44;">
+                        ${esc(t.name)} <small>(${t.script_count})</small>
+                        <button style="border:none;background:none;cursor:pointer;font-size:0.9rem;color:${c};" title="Delete" onclick="deleteTag(${t.id}, event)">×</button>
+                    </span>`;
+                }).join('');
             } catch(e) { console.error('tags', e); }
         }
 
@@ -1485,20 +1506,20 @@
                 }
 
                 tbody.innerHTML = data.items.map(s => {
-                    const tags = (s.tags || []).map(t => `<span class="tag-pill">${t}</span>`).join(' ');
+                    const tags = (s.tags || []).map(t => `<span class="tag-pill">${esc(t)}</span>`).join(' ');
                     const status = s.lifecycle_status || 'active';
                     const statusCls = { active:'lifecycle-active', draft:'lifecycle-draft', deprecated:'lifecycle-deprecated', archived:'lifecycle-archived' }[status] || 'lifecycle-active';
                     return `<tr>
-                        <td style="font-weight:500;">${s.name}</td>
-                        <td class="hide-mobile"><div class="script-path" style="font-size:0.8rem;color:var(--text-muted);">${s.path}</div></td>
-                        <td>${s.language ? `<span class="lang-badge">${s.language}</span>` : '—'}</td>
-                        <td><span class="lifecycle-badge ${statusCls}">${status}</span></td>
+                        <td style="font-weight:500;">${esc(s.name)}</td>
+                        <td class="hide-mobile"><div class="script-path" style="font-size:0.8rem;color:var(--text-muted);">${esc(s.path)}</div></td>
+                        <td>${s.language ? `<span class="lang-badge">${esc(s.language)}</span>` : '—'}</td>
+                        <td><span class="lifecycle-badge ${statusCls}">${esc(status)}</span></td>
                         <td class="hide-mobile">${tags || '—'}</td>
                         <td class="hide-mobile" style="font-size:0.85rem;">${s.line_count ?? '—'}</td>
                         <td class="actions">
-                            <button class="btn btn-secondary btn-sm" onclick="viewLibScriptContent(${s.id}, '${s.name.replace(/'/g,"\\'")}')">View</button>
-                            <button class="btn btn-secondary btn-sm" onclick="editLibScriptStatus(${s.id}, '${s.name.replace(/'/g,"\\'")}')" title="Edit status/notes">Edit</button>
-                            <button class="btn btn-primary btn-sm" onclick="runLibScript(${s.id}, '${s.path.replace(/'/g,"\\'")}')">▶ Run</button>
+                            <button class="btn btn-secondary btn-sm" onclick="viewLibScriptContent(${s.id}, ${esc(JSON.stringify(s.name))})">View</button>
+                            <button class="btn btn-secondary btn-sm" onclick="editLibScriptStatus(${s.id}, ${esc(JSON.stringify(s.name))})" title="Edit status/notes">Edit</button>
+                            <button class="btn btn-primary btn-sm" onclick="runLibScript(${s.id}, ${esc(JSON.stringify(s.path))})">▶ Run</button>
                         </td>
                     </tr>`;
                 }).join('');
@@ -1569,9 +1590,9 @@
                 if (!dups.length) { list.innerHTML = '<p style="color:var(--success-text)">✓ No duplicates found.</p>'; return; }
                 list.innerHTML = dups.map(d => `
                     <div style="margin-bottom:1rem; padding:1rem; background:var(--bg-color); border-radius:0.5rem;">
-                        <div style="font-weight:600; margin-bottom:0.5rem;">📄 ${d.name} <span style="font-size:0.8rem; color:var(--text-muted);">${d.count} copies · ${d.line_count} lines · ${(d.size/1024).toFixed(1)} KB</span></div>
+                        <div style="font-weight:600; margin-bottom:0.5rem;">📄 ${esc(d.name)} <span style="font-size:0.8rem; color:var(--text-muted);">${d.count} copies · ${d.line_count} lines · ${(d.size/1024).toFixed(1)} KB</span></div>
                         <ul style="margin:0; padding-left:1.5rem; font-size:0.85rem; color:var(--text-muted);">
-                            ${d.paths.map(p => `<li>${p}</li>`).join('')}
+                            ${d.paths.map(p => `<li>${esc(p)}</li>`).join('')}
                         </ul>
                     </div>
                 `).join('');

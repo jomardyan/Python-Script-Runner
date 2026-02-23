@@ -11,6 +11,7 @@ import argparse
 import gzip
 import json
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -940,7 +941,8 @@ def _execute_run(run_id: str, payload: RunRequest, cancel_event: threading.Event
             RUNS[run_id] = record
         RUN_STORE.upsert(record)
     finally:
-        RUN_HANDLES.pop(run_id, None)
+        with RUNS_LOCK:
+            RUN_HANDLES.pop(run_id, None)
 
 
 def _validate_script_path(path_str: str) -> Path:
@@ -1004,7 +1006,7 @@ def _queue_run(payload: RunRequest, background_tasks: BackgroundTasks) -> Dict[s
     cancel_event = threading.Event()
     with RUNS_LOCK:
         RUNS[run_id] = record
-    RUN_HANDLES[run_id] = {"cancel_event": cancel_event, "runner": None}
+        RUN_HANDLES[run_id] = {"cancel_event": cancel_event, "runner": None}
     RUN_STORE.upsert(record)
 
     background_tasks.add_task(_execute_run, run_id, payload, cancel_event)
@@ -1093,8 +1095,8 @@ def get_run(run_id: str) -> RunRecord:
 
 @app.post("/api/runs/{run_id}/cancel")
 def cancel_run(run_id: str) -> Dict[str, str]:
-    handle = RUN_HANDLES.get(run_id)
     with RUNS_LOCK:
+        handle = RUN_HANDLES.get(run_id)
         record = RUNS.get(run_id)
     if not record:
         record = RUN_STORE.get(run_id)
@@ -1136,6 +1138,7 @@ def stop_run(run_id: str) -> Dict[str, str]:
     """
     with RUNS_LOCK:
         record = RUNS.get(run_id)
+        handle = RUN_HANDLES.get(run_id)
     if not record:
         record = RUN_STORE.get(run_id)
     if not record:
@@ -1143,7 +1146,6 @@ def stop_run(run_id: str) -> Dict[str, str]:
     if record.status not in {"queued", "running"}:
         raise HTTPException(status_code=409, detail="Run is not active")
 
-    handle = RUN_HANDLES.get(run_id)
     stopped = False
     if handle:
         runner: Optional[ScriptRunner] = handle.get("runner")
@@ -1164,6 +1166,7 @@ def kill_run(run_id: str) -> Dict[str, str]:
     """
     with RUNS_LOCK:
         record = RUNS.get(run_id)
+        handle = RUN_HANDLES.get(run_id)
     if not record:
         record = RUN_STORE.get(run_id)
     if not record:
@@ -1171,7 +1174,6 @@ def kill_run(run_id: str) -> Dict[str, str]:
     if record.status not in {"queued", "running"}:
         raise HTTPException(status_code=409, detail="Run is not active")
 
-    handle = RUN_HANDLES.get(run_id)
     killed = False
     if handle:
         runner: Optional[ScriptRunner] = handle.get("runner")
@@ -1199,7 +1201,8 @@ def restart_run(run_id: str, background_tasks: BackgroundTasks) -> Dict[str, str
 
     # Stop the existing run if still active
     if record.status in {"queued", "running"}:
-        handle = RUN_HANDLES.get(run_id)
+        with RUNS_LOCK:
+            handle = RUN_HANDLES.get(run_id)
         if handle:
             handle["cancel_event"].set()
             runner: Optional[ScriptRunner] = handle.get("runner")
@@ -1236,7 +1239,8 @@ def get_run_events(run_id: str) -> List[Dict[str, Any]]:
     if the run is not found or has no events.
     """
     # Check in-memory handle first (for live/active runs)
-    handle = RUN_HANDLES.get(run_id)
+    with RUNS_LOCK:
+        handle = RUN_HANDLES.get(run_id)
     if handle:
         runner: Optional[ScriptRunner] = handle.get("runner")
         if runner:
@@ -1286,7 +1290,12 @@ class FolderRootCreate(BaseModel):
 
 class TagCreate(BaseModel):
     name: str = Field(..., description="Tag name")
-    color: str = Field("#6366f1", description="Hex color for the tag badge")
+    color: str = Field("#6366f1", description="Hex color for the tag badge (#RRGGBB)")
+
+    @property
+    def safe_color(self) -> str:
+        """Return color only if it is a valid #RRGGBB hex string, else default."""
+        return self.color if re.fullmatch(r"#[0-9A-Fa-f]{6}", self.color) else "#6366f1"
 
 
 class ScriptStatusUpdate(BaseModel):
@@ -1312,7 +1321,14 @@ def list_folder_roots() -> List[Dict[str, Any]]:
 
 @app.post("/api/library/folder-roots", status_code=201)
 def create_folder_root(payload: FolderRootCreate) -> Dict[str, Any]:
-    """Register a new folder root to be scanned."""
+    """Register a new folder root to be scanned.
+
+    The library can index scripts from any readable path.  Execution is a
+    separate concern: when a library script is run via ``POST
+    /api/library/scripts/{id}/run`` the path is still validated against
+    ``ALLOWED_SCRIPT_ROOT`` (via ``_validate_payload``), so scripts outside
+    the allowed execution root can be browsed but not executed.
+    """
     try:
         root = SCRIPT_LIBRARY.create_folder_root(
             path=payload.path,
@@ -1449,7 +1465,7 @@ def list_library_tags() -> List[Dict[str, Any]]:
 def create_library_tag(payload: TagCreate) -> Dict[str, Any]:
     """Create a new tag."""
     try:
-        return SCRIPT_LIBRARY.create_tag(payload.name, payload.color)
+        return SCRIPT_LIBRARY.create_tag(payload.name, payload.safe_color)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
