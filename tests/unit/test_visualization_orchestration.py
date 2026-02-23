@@ -255,9 +255,10 @@ class TestScriptWorkflowStopOnFailure:
         result = wf.execute()
 
         assert result["status"] == "aborted"
-        # 'b' should not have been run (still pending — its dependency failed)
-        assert wf.scripts["b"].status == "pending"
+        # 'b' should not have been run — it gets "blocked" because its dependency failed
+        assert wf.scripts["b"].status == "blocked"
         assert result.get("failed", 0) >= 1
+        assert result.get("blocked", 0) >= 1
 
     def test_stop_on_failure_false_continues(self, tmp_path):
         failing = tmp_path / "fail.py"
@@ -326,6 +327,7 @@ class TestScriptWorkflowParallelExecution:
         result = wf.execute()
         assert result["status"] == "completed"
         assert result["successful"] == 3
+        assert result["blocked"] == 0  # No scripts were blocked
 
     def test_parallel_respects_dependencies(self, tmp_path):
         """b must run after a completes."""

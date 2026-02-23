@@ -2107,6 +2107,9 @@ class ScriptWorkflow:
         """
         node = self.scripts[script_name]
         with semaphore:
+            # Set status to "running" inside the semaphore so the transition
+            # from "pending" to "running" is atomic with respect to other
+            # threads checking dependencies.
             node.status = "running"
             logging.info(f"Executing script: {script_name} ({node.script_path})")
             if self.on_step_callback:
@@ -2114,8 +2117,10 @@ class ScriptWorkflow:
                     self.on_step_callback(script_name, "running", None)
                 except Exception:
                     pass
+            # Initialize start before the try block so exception handlers can
+            # always compute elapsed time without risk of NameError.
+            start = time.time()
             try:
-                start = time.time()
                 proc_result = subprocess.run(
                     [sys.executable, node.script_path] + node.script_args,
                     timeout=node.timeout,
@@ -2211,12 +2216,10 @@ class ScriptWorkflow:
                 node = self.scripts[script_name]
                 if node.status != "pending":
                     continue  # Already dispatched
-                # Mark as running to avoid re-dispatch
-                node.status = "running"
                 t = threading.Thread(
                     target=self._run_node,
                     args=(script_name, results, semaphore),
-                    daemon=True,
+                    daemon=False,
                 )
                 threads.append(t)
                 t.start()
@@ -2233,22 +2236,30 @@ class ScriptWorkflow:
         
         self.end_time = datetime.now()
         self.total_time = (self.end_time - self.start_time).total_seconds()
-        
+
+        # Mark any scripts still pending (never executed because a dependency
+        # failed) as "blocked" so callers can distinguish them from failures.
+        for node in self.scripts.values():
+            if node.status == "pending":
+                node.status = "blocked"
+
         successful = sum(1 for s in self.scripts.values() if s.status == "completed")
         failed = sum(1 for s in self.scripts.values() if s.status == "failed")
+        blocked = sum(1 for s in self.scripts.values() if s.status == "blocked")
         status = "aborted" if aborted else "completed"
         logging.info(f"Workflow {status}: {self.name}")
         logging.info(
             f"Total scripts: {len(self.scripts)}, "
-            f"Successful: {successful}, Failed: {failed}"
+            f"Successful: {successful}, Failed: {failed}, Blocked: {blocked}"
         )
         logging.info(f"Total execution time: {self.total_time:.2f}s")
-        
+
         return {
             "status": status,
             "total_scripts": len(self.scripts),
             "successful": successful,
             "failed": failed,
+            "blocked": blocked,
             "total_time": self.total_time,
             "results": results,
         }
@@ -2257,7 +2268,7 @@ class ScriptWorkflow:
         """Return an ASCII-art representation of the workflow DAG.
 
         Produces a multi-line string showing each script as a node, its
-        dependencies as incoming arrows, and the current execution status.
+        dependencies as outgoing arrows to their dependents, and the current execution status.
 
         Returns:
             str: Multi-line ASCII-art DAG diagram.
