@@ -17,7 +17,9 @@ import sys
 import tempfile
 import json
 import time
+import threading
 from pathlib import Path
+from typing import List, Any
 from unittest.mock import Mock, patch, MagicMock, mock_open
 import sqlite3
 
@@ -836,5 +838,330 @@ def tmp_path(tmp_path):
     """Provide temporary directory for tests"""
     return tmp_path
 
+
+# ============================================================================
+# Tests for new enhanced features (correlation IDs, structured events,
+# lifecycle controls, working_dir/env_vars, streaming, status field)
+# ============================================================================
+
+class TestCorrelationIdAndStatus:
+    """Test correlation ID generation and status string in results"""
+
+    def test_correlation_id_present_on_success(self, tmp_path):
+        script_file = tmp_path / "ok.py"
+        script_file.write_text("print('hi')")
+        runner = ScriptRunner(str(script_file), enable_history=False)
+        result = runner.run_script()
+
+        assert 'correlation_id' in result
+        assert result['correlation_id'] is not None
+        # Validate it is a well-formed UUID
+        import uuid as _uuid_mod
+        _uuid_mod.UUID(result['correlation_id'])  # raises ValueError if invalid
+
+    def test_correlation_id_present_in_metrics(self, tmp_path):
+        script_file = tmp_path / "ok.py"
+        script_file.write_text("print('hi')")
+        runner = ScriptRunner(str(script_file), enable_history=False)
+        result = runner.run_script()
+
+        assert result['metrics']['correlation_id'] == result['correlation_id']
+
+    def test_status_success(self, tmp_path):
+        script_file = tmp_path / "ok.py"
+        script_file.write_text("exit(0)")
+        runner = ScriptRunner(str(script_file), enable_history=False)
+        result = runner.run_script()
+
+        assert result['status'] == 'success'
+
+    def test_status_failed(self, tmp_path):
+        script_file = tmp_path / "fail.py"
+        script_file.write_text("exit(1)")
+        runner = ScriptRunner(str(script_file), enable_history=False)
+        result = runner.run_script()
+
+        assert result['status'] == 'failed'
+
+    def test_status_timeout(self, tmp_path):
+        script_file = tmp_path / "hang.py"
+        script_file.write_text("import time\ntime.sleep(10)")
+        runner = ScriptRunner(str(script_file), timeout=1, enable_history=False)
+        result = runner.run_script()
+
+        assert result['status'] == 'timeout'
+        assert result['metrics'].get('timed_out') is True
+
+    def test_error_summary_on_failure(self, tmp_path):
+        script_file = tmp_path / "fail.py"
+        script_file.write_text("exit(2)")
+        runner = ScriptRunner(str(script_file), enable_history=False)
+        result = runner.run_script()
+
+        assert result['error_summary'] is not None
+        assert result['error_summary']['exit_code'] == 2
+
+    def test_error_summary_none_on_success(self, tmp_path):
+        script_file = tmp_path / "ok.py"
+        script_file.write_text("exit(0)")
+        runner = ScriptRunner(str(script_file), enable_history=False)
+        result = runner.run_script()
+
+        assert result.get('error_summary') is None
+
+    def test_error_summary_on_timeout(self, tmp_path):
+        script_file = tmp_path / "hang.py"
+        script_file.write_text("import time\ntime.sleep(10)")
+        runner = ScriptRunner(str(script_file), timeout=1, enable_history=False)
+        result = runner.run_script()
+
+        assert result['error_summary'] is not None
+        assert result['error_summary']['status'] == 'timeout'
+
+
+class TestWorkingDirAndEnvVars:
+    """Test working_dir and env_vars configuration"""
+
+    def test_env_vars_passed_to_script(self, tmp_path):
+        script_file = tmp_path / "env_check.py"
+        script_file.write_text(
+            "import os, sys\n"
+            "val = os.environ.get('MY_TEST_VAR', 'MISSING')\n"
+            "print(val)\n"
+            "sys.exit(0 if val == 'hello_world' else 1)\n"
+        )
+        runner = ScriptRunner(
+            str(script_file),
+            env_vars={'MY_TEST_VAR': 'hello_world'},
+            enable_history=False,
+        )
+        result = runner.run_script()
+
+        assert result['returncode'] == 0, result['stderr']
+
+    def test_correlation_id_env_var_in_script(self, tmp_path):
+        script_file = tmp_path / "cid_check.py"
+        script_file.write_text(
+            "import os\n"
+            "cid = os.environ.get('SCRIPT_RUNNER_CORRELATION_ID', '')\n"
+            "import sys\n"
+            "sys.exit(0 if len(cid) == 36 else 1)\n"
+        )
+        runner = ScriptRunner(str(script_file), enable_history=False)
+        result = runner.run_script()
+
+        assert result['returncode'] == 0, "Correlation ID env var not present in subprocess"
+
+    def test_working_dir_used(self, tmp_path):
+        work_dir = tmp_path / "workdir"
+        work_dir.mkdir()
+        (work_dir / "sentinel.txt").write_text("sentinel")
+
+        script_file = tmp_path / "cwd_check.py"
+        script_file.write_text(
+            "import os, sys\n"
+            "exists = os.path.exists('sentinel.txt')\n"
+            "sys.exit(0 if exists else 1)\n"
+        )
+        runner = ScriptRunner(
+            str(script_file),
+            working_dir=str(work_dir),
+            enable_history=False,
+        )
+        result = runner.run_script()
+
+        assert result['returncode'] == 0, "Script did not see sentinel.txt in working_dir"
+
+    def test_default_cwd_is_script_directory(self, tmp_path):
+        (tmp_path / "local.txt").write_text("here")
+        script_file = tmp_path / "check.py"
+        script_file.write_text(
+            "import os, sys\n"
+            "sys.exit(0 if os.path.exists('local.txt') else 1)\n"
+        )
+        runner = ScriptRunner(str(script_file), enable_history=False)
+        result = runner.run_script()
+
+        assert result['returncode'] == 0, "Default CWD should be the script's directory"
+
+
+class TestStructuredEvents:
+    """Test structured event emission via StructuredLogger"""
+
+    def test_start_event_emitted(self, tmp_path):
+        script_file = tmp_path / "ok.py"
+        script_file.write_text("exit(0)")
+        runner = ScriptRunner(str(script_file), enable_history=False)
+        runner.run_script()
+
+        events = runner.structured_logger.get_logs(event_type='start')
+        assert len(events) >= 1
+        assert events[0]['data']['script_path'] == str(script_file)
+
+    def test_success_event_emitted(self, tmp_path):
+        script_file = tmp_path / "ok.py"
+        script_file.write_text("exit(0)")
+        runner = ScriptRunner(str(script_file), enable_history=False)
+        runner.run_script()
+
+        events = runner.structured_logger.get_logs(event_type='success')
+        assert len(events) >= 1
+
+    def test_failure_event_emitted_on_exception(self, tmp_path):
+        script_file = tmp_path / "bad.py"
+        script_file.write_text("raise RuntimeError('boom')")
+        runner = ScriptRunner(str(script_file), enable_history=False)
+        runner.run_script()
+
+        # Non-zero exit goes to 'failed' branch; exception in runner goes to 'failure'
+        failed_events = runner.structured_logger.get_logs(event_type='failed')
+        failure_events = runner.structured_logger.get_logs(event_type='failure')
+        assert len(failed_events) + len(failure_events) >= 1
+
+    def test_timeout_event_emitted(self, tmp_path):
+        script_file = tmp_path / "hang.py"
+        script_file.write_text("import time\ntime.sleep(10)")
+        runner = ScriptRunner(str(script_file), timeout=1, enable_history=False)
+        runner.run_script()
+
+        events = runner.structured_logger.get_logs(event_type='timeout')
+        assert len(events) >= 1
+        assert events[0]['data']['timeout_seconds'] == 1
+
+    def test_events_persisted_to_log_file(self, tmp_path):
+        log_path = tmp_path / "events.jsonl"
+        script_file = tmp_path / "ok.py"
+        script_file.write_text("exit(0)")
+        runner = ScriptRunner(
+            str(script_file),
+            log_file=str(log_path),
+            enable_history=False,
+        )
+        runner.run_script()
+
+        assert log_path.exists()
+        lines = log_path.read_text().strip().splitlines()
+        parsed = [json.loads(l) for l in lines]
+        types = [e['event_type'] for e in parsed]
+        assert 'start' in types
+        assert 'success' in types
+
+    def test_event_has_correlation_id(self, tmp_path):
+        script_file = tmp_path / "ok.py"
+        script_file.write_text("exit(0)")
+        runner = ScriptRunner(str(script_file), enable_history=False)
+        result = runner.run_script()
+
+        events = runner.structured_logger.get_logs(event_type='start')
+        assert events[0]['data']['correlation_id'] == result['correlation_id']
+
+
+class TestLifecycleControls:
+    """Test stop(), kill(), restart() lifecycle methods"""
+
+    def test_stop_method_exists(self, tmp_path):
+        script_file = tmp_path / "ok.py"
+        script_file.write_text("exit(0)")
+        runner = ScriptRunner(str(script_file), enable_history=False)
+        assert callable(runner.stop)
+
+    def test_kill_method_exists(self, tmp_path):
+        script_file = tmp_path / "ok.py"
+        script_file.write_text("exit(0)")
+        runner = ScriptRunner(str(script_file), enable_history=False)
+        assert callable(runner.kill)
+
+    def test_restart_method_exists(self, tmp_path):
+        script_file = tmp_path / "ok.py"
+        script_file.write_text("exit(0)")
+        runner = ScriptRunner(str(script_file), enable_history=False)
+        assert callable(runner.restart)
+
+    def test_stop_returns_false_when_nothing_running(self, tmp_path):
+        script_file = tmp_path / "ok.py"
+        script_file.write_text("exit(0)")
+        runner = ScriptRunner(str(script_file), enable_history=False)
+        assert runner.stop() is False
+
+    def test_kill_returns_false_when_nothing_running(self, tmp_path):
+        script_file = tmp_path / "ok.py"
+        script_file.write_text("exit(0)")
+        runner = ScriptRunner(str(script_file), enable_history=False)
+        assert runner.kill() is False
+
+    def test_restart_runs_script_again(self, tmp_path):
+        script_file = tmp_path / "counter.py"
+        counter_file = tmp_path / "count.txt"
+        counter_file.write_text("0")
+        script_file.write_text(
+            "from pathlib import Path\n"
+            f"p = Path(r'{counter_file}')\n"
+            "p.write_text(str(int(p.read_text()) + 1))\n"
+        )
+        runner = ScriptRunner(str(script_file), enable_history=False)
+        runner.run_script()
+        runner.restart()
+
+        assert int(counter_file.read_text()) == 2
+
+    def test_stop_during_execution_terminates_process(self, tmp_path):
+        """stop() called from another thread should terminate a long-running script."""
+        script_file = tmp_path / "hang.py"
+        script_file.write_text("import time\ntime.sleep(30)")
+        runner = ScriptRunner(str(script_file), enable_history=False)
+
+        results: List[Any] = []
+
+        def _run():
+            results.append(runner.run_script())
+
+        t = threading.Thread(target=_run)
+        t.start()
+        time.sleep(0.5)  # Give subprocess time to start before stopping
+        runner.stop()
+        t.join(timeout=8)
+
+        assert len(results) == 1
+        # The script was forcibly stopped; return code should be non-zero
+        assert results[0]['returncode'] != 0
+
+
+class TestStreamOutput:
+    """Test real-time output streaming"""
+
+    def test_stream_output_captures_stdout(self, tmp_path):
+        script_file = tmp_path / "printer.py"
+        script_file.write_text("print('line1')\nprint('line2')\n")
+        runner = ScriptRunner(
+            str(script_file),
+            stream_output=True,
+            enable_history=False,
+        )
+        result = runner.run_script()
+
+        assert 'line1' in result['stdout']
+        assert 'line2' in result['stdout']
+
+    def test_stream_output_timeout_still_raises_timeout_status(self, tmp_path):
+        script_file = tmp_path / "hang.py"
+        script_file.write_text("import time\ntime.sleep(20)")
+        runner = ScriptRunner(
+            str(script_file),
+            timeout=1,
+            stream_output=True,
+            enable_history=False,
+        )
+        result = runner.run_script()
+
+        assert result['status'] == 'timeout'
+
+    def test_stream_output_false_by_default(self, tmp_path):
+        script_file = tmp_path / "ok.py"
+        script_file.write_text("exit(0)")
+        runner = ScriptRunner(str(script_file), enable_history=False)
+        assert runner.stream_output is False
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v', '--tb=short'])
+

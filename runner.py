@@ -44,6 +44,8 @@ import re
 import sqlite3
 import shlex
 import gzip
+import uuid
+import queue as _queue_module
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Callable, Tuple
@@ -6918,7 +6920,9 @@ class ScriptRunner:
 
     def __init__(self, script_path: str, script_args: Optional[List[str]] = None,
                  timeout: Optional[int] = None, log_level: Optional[str] = 'INFO', config_file: Optional[str] = None,
-                 history_db: Optional[str] = None, enable_history: bool = True) -> None:
+                 history_db: Optional[str] = None, enable_history: bool = True,
+                 working_dir: Optional[str] = None, env_vars: Optional[Dict[str, str]] = None,
+                 stream_output: bool = False, log_file: Optional[str] = None) -> None:
         """Initialize ScriptRunner with configuration.
         
         Args:
@@ -6930,6 +6934,14 @@ class ScriptRunner:
             history_db (str, optional): SQLite database path for metrics history.
                 Default: 'script_runner_history.db'
             enable_history (bool): Whether to save metrics to database. Default: True
+            working_dir (str, optional): Working directory for script execution.
+                Defaults to the script's own directory.
+            env_vars (Dict[str, str], optional): Extra environment variables to pass
+                to the script process. Merged on top of the inherited environment.
+            stream_output (bool): When True, stream stdout/stderr to the logger in
+                real time (via threads) in addition to capturing them. Default: False
+            log_file (str, optional): Path to a JSONL file for persisting structured
+                execution events. Default: None (no file persistence)
         
         Raises:
             FileNotFoundError: If script_path doesn't exist
@@ -6942,7 +6954,11 @@ class ScriptRunner:
             ...     script_args=['--debug'],
             ...     timeout=300,
             ...     config_file='runner_config.yaml',
-            ...     enable_history=True
+            ...     enable_history=True,
+            ...     working_dir='/tmp/workdir',
+            ...     env_vars={'MY_VAR': 'value'},
+            ...     stream_output=True,
+            ...     log_file='events.jsonl',
             ... )
         """
         self.script_path = script_path
@@ -6954,6 +6970,17 @@ class ScriptRunner:
         self.hooks = ExecutionHook()
         self.monitor_interval = 0.1
         self.config_file = config_file
+
+        # New configuration options
+        self.working_dir = working_dir
+        self.env_vars = env_vars or {}
+        self.stream_output = stream_output
+
+        # Structured event logger (persists to log_file if provided)
+        self.structured_logger = StructuredLogger(log_file=log_file)
+
+        # Threading primitives for lifecycle management
+        self._stop_event = threading.Event()
 
         # Execution visualization
         self.visualizer = ExecutionVisualizer(enabled=False)
@@ -7346,7 +7373,12 @@ class ScriptRunner:
                 except Exception:
                     continue
             process.kill()
-            process.wait(timeout=5)
+            # Poll briefly instead of waiting with psutil.wait() to avoid
+            # stealing the exit status from subprocess.communicate().
+            for _ in range(50):  # up to 2.5 s
+                if not process.is_running():
+                    break
+                time.sleep(0.05)
             return True
         except Exception:
             return False
@@ -7354,7 +7386,66 @@ class ScriptRunner:
             with self._active_process_lock:
                 self._active_process = None
 
+    # ------------------------------------------------------------------
+    # Lifecycle controls: start / stop / kill / restart
+    # ------------------------------------------------------------------
+
+    def stop(self) -> bool:
+        """Signal the running script to stop.
+
+        Sets the internal stop event (checked by the watchdog thread) and
+        then forcefully terminates the active process tree.  Call this to
+        perform a controlled, user-triggered stop while a script is running.
+
+        Returns:
+            bool: True if a process was found and terminated, False otherwise.
+        """
+        self._stop_event.set()
+        return self.cancel_active_run()
+
+    def kill(self) -> bool:
+        """Forcefully kill the running script and all its children.
+
+        Equivalent to :meth:`cancel_active_run`; provided as an explicit
+        lifecycle method for clarity.
+
+        Returns:
+            bool: True if a process was found and killed, False otherwise.
+        """
+        return self.cancel_active_run()
+
+    def restart(self, retry_on_failure: bool = False) -> Dict:
+        """Stop any currently running script and start a fresh execution.
+
+        Args:
+            retry_on_failure (bool): Passed through to :meth:`run_script`.
+
+        Returns:
+            Dict: Execution result from the new run (same shape as
+            :meth:`run_script`).
+        """
+        self.cancel_active_run()
+        self._stop_event.clear()
+        return self.run_script(retry_on_failure=retry_on_failure)
+
+    def _emit_event(self, event_type: str, data: Dict) -> None:
+        """Emit a structured execution event.
+
+        Writes the event to the :class:`StructuredLogger` (which may also
+        persist it to a JSONL file) and logs a debug-level message.
+
+        Args:
+            event_type (str): One of ``start``, ``success``, ``failure``,
+                ``timeout``, ``forced_termination``.
+            data (Dict): Arbitrary key-value pairs to include with the event.
+        """
+        self.structured_logger.log_event(event_type, data)
+        self.logger.debug("event=%s data=%s", event_type, data)
+
     def _execute_script(self, attempt_number: int = 1) -> Dict:
+        # Generate a unique correlation ID for this run
+        correlation_id = str(uuid.uuid4())
+
         # Show visualization header
         self.visualizer.show_header(self.script_path, self.script_args, attempt_number)
 
@@ -7389,15 +7480,38 @@ class ScriptRunner:
         env = os.environ.copy()
         env['SCRIPT_RUNNER_ACTIVE'] = '1'
         env['SCRIPT_RUNNER_ATTEMPT'] = str(attempt_number)
+        env['SCRIPT_RUNNER_CORRELATION_ID'] = correlation_id
+        # Merge caller-supplied extra environment variables
+        if self.env_vars:
+            for k, v in self.env_vars.items():
+                env[str(k)] = str(v)
         self.visualizer.show_step("Environment", "Environment variables configured", "done")
+
+        # Determine working directory
+        if self.working_dir:
+            cwd = self.working_dir
+        else:
+            cwd = os.path.dirname(os.path.abspath(self.script_path)) or '.'
 
         self.visualizer.show_step("Process Monitor", f"Initializing process monitor (interval: {self.monitor_interval}s)", "running")
         monitor = ProcessMonitor(interval=self.monitor_interval)
         self.visualizer.show_step("Process Monitor", "Monitor initialized and ready", "done")
 
+        # Emit structured 'start' event
+        self._emit_event('start', {
+            'correlation_id': correlation_id,
+            'script_path': self.script_path,
+            'script_args': self.script_args,
+            'attempt_number': attempt_number,
+            'timeout': self.timeout,
+            'working_dir': cwd,
+            'timestamp': start_timestamp,
+        })
+
         child_process = None
         result: Dict[str, Any] = {}
         end_timestamp: Optional[str] = None
+        _forced_kill = threading.Event()
 
         try:
             self.visualizer.show_subprocess_start(cmd)
@@ -7407,7 +7521,7 @@ class ScriptRunner:
                 stderr=subprocess.PIPE,
                 text=True,
                 env=env,
-                cwd=os.path.dirname(os.path.abspath(self.script_path)) or '.'
+                cwd=cwd,
             )
 
             try:
@@ -7422,24 +7536,99 @@ class ScriptRunner:
                 self.logger.warning("Could not attach monitor to child process")
                 self.visualizer.show_step("Monitoring", "Could not attach monitor (process terminated quickly)", "skip")
 
+            # Watchdog thread: honours user-triggered stop (_stop_event) and
+            # kills the child process if it is set while the process is running.
+            def _watchdog():
+                while proc.poll() is None:
+                    if self._stop_event.is_set():
+                        _forced_kill.set()
+                        if child_process:
+                            for _ch in child_process.children(recursive=True):
+                                try:
+                                    _ch.kill()
+                                except Exception:
+                                    pass
+                            try:
+                                child_process.kill()
+                            except Exception:
+                                pass
+                        try:
+                            proc.kill()
+                        except Exception:
+                            pass
+                        return
+                    time.sleep(0.05)
+
+            watchdog_thread = threading.Thread(target=_watchdog, daemon=True)
+            watchdog_thread.start()
+
             # Show monitoring updates periodically
             if self.visualizer.enabled:
                 self.visualizer.show_step("Execution", "Script running - monitoring in progress", "running")
 
-            try:
-                stdout, stderr = proc.communicate(timeout=self.timeout)
+            if self.stream_output:
+                # Real-time streaming: read stdout/stderr in threads and accumulate
+                stdout_parts: List[str] = []
+                stderr_parts: List[str] = []
+
+                def _read_stream(pipe, parts: List[str], level: int):
+                    for line in pipe:
+                        self.logger.log(level, line.rstrip())
+                        parts.append(line)
+
+                t_out = threading.Thread(
+                    target=_read_stream,
+                    args=(proc.stdout, stdout_parts, logging.INFO),
+                    daemon=True,
+                )
+                t_err = threading.Thread(
+                    target=_read_stream,
+                    args=(proc.stderr, stderr_parts, logging.WARNING),
+                    daemon=True,
+                )
+                t_out.start()
+                t_err.start()
+
+                # Wait for the process, honouring the timeout and stop_event
+                deadline = time.time() + self.timeout if self.timeout else None
+                while proc.poll() is None:
+                    if deadline and time.time() >= deadline:
+                        if child_process:
+                            for _ch in child_process.children(recursive=True):
+                                try:
+                                    _ch.kill()
+                                except Exception:
+                                    pass
+                            try:
+                                child_process.kill()
+                            except Exception:
+                                pass
+                        proc.kill()
+                        t_out.join(timeout=2)
+                        t_err.join(timeout=2)
+                        raise subprocess.TimeoutExpired(cmd, self.timeout)
+                    time.sleep(0.05)
+
+                t_out.join(timeout=5)
+                t_err.join(timeout=5)
+                stdout = ''.join(stdout_parts)
+                stderr = ''.join(stderr_parts)
                 returncode = proc.returncode
-            except subprocess.TimeoutExpired:
-                if child_process:
-                    for child in child_process.children(recursive=True):
-                        try:
-                            child.kill()
-                        except Exception:
-                            continue
-                    child_process.kill()
-                proc.kill()
-                stdout, stderr = proc.communicate()
-                raise
+            else:
+                try:
+                    stdout, stderr = proc.communicate(timeout=self.timeout)
+                    returncode = proc.returncode
+                except subprocess.TimeoutExpired:
+                    if child_process:
+                        for child in child_process.children(recursive=True):
+                            try:
+                                child.kill()
+                            except Exception:
+                                continue
+                        child_process.kill()
+                    proc.kill()
+                    stdout, stderr = proc.communicate()
+                    raise
 
             monitor.stop()
             self.visualizer.show_step("Monitoring", "Process monitoring stopped", "done")
@@ -7447,6 +7636,18 @@ class ScriptRunner:
             end_time = time.time()
             end_timestamp = datetime.now().isoformat()
             execution_time = end_time - start_time
+
+            # Determine status: 'killed' if user-triggered stop fired
+            if _forced_kill.is_set():
+                run_status = 'killed'
+                # psutil.wait() can steal the exit status and leave returncode 0;
+                # ensure a non-zero code to reflect the forced termination.
+                if returncode == 0:
+                    returncode = -1
+            elif returncode == 0:
+                run_status = 'success'
+            else:
+                run_status = 'failed'
 
             self.visualizer.show_step("Metrics Collection", "Collecting execution metrics", "running")
             end_metrics = self.collect_system_metrics_end(start_metrics)
@@ -7461,6 +7662,8 @@ class ScriptRunner:
                 'execution_time_seconds': round(execution_time, 4),
                 'exit_code': returncode,
                 'success': returncode == 0,
+                'status': run_status,
+                'correlation_id': correlation_id,
                 'attempt_number': attempt_number,
                 'stdout_lines': len(stdout.splitlines()) if stdout else 0,
                 'stderr_lines': len(stderr.splitlines()) if stderr else 0,
@@ -7478,23 +7681,54 @@ class ScriptRunner:
 
             self.visualizer.show_metrics_summary(self.metrics)
 
+            # Build structured error_summary for non-zero exits
+            error_summary: Optional[Dict] = None
+            if returncode != 0:
+                error_summary = {
+                    'exit_code': returncode,
+                    'stderr_snippet': (stderr or '')[-500:],
+                    'status': run_status,
+                    'correlation_id': correlation_id,
+                }
+
             result = {
                 'stdout': stdout,
                 'stderr': stderr,
                 'returncode': returncode,
                 'success': returncode == 0,
+                'status': run_status,
+                'correlation_id': correlation_id,
                 # Top-level convenience fields for easier test assertions
                 'attempt_number': attempt_number,
                 'stdout_lines': self.metrics.get('stdout_lines', 0),
                 'stderr_lines': self.metrics.get('stderr_lines', 0),
-                'metrics': self.metrics
+                'error_summary': error_summary,
+                'metrics': self.metrics,
             }
+
+            # Emit structured event
+            event_type = 'forced_termination' if run_status == 'killed' else run_status
+            self._emit_event(event_type, {
+                'correlation_id': correlation_id,
+                'exit_code': returncode,
+                'execution_time_seconds': round(execution_time, 4),
+                'attempt_number': attempt_number,
+            })
+
         except subprocess.TimeoutExpired as e:
             self.visualizer.show_step("Timeout", "Script execution timed out", "error")
             monitor.stop()
             end_time = time.time()
             end_timestamp = datetime.now().isoformat()
             execution_time = end_time - start_time
+
+            error_summary = {
+                'exit_code': -1,
+                'error': 'Script execution timed out',
+                'timeout_seconds': self.timeout,
+                'status': 'timeout',
+                'correlation_id': correlation_id,
+            }
 
             self.metrics = {
                 'script_path': self.script_path,
@@ -7504,6 +7738,8 @@ class ScriptRunner:
                 'execution_time_seconds': round(execution_time, 4),
                 'exit_code': -1,
                 'success': False,
+                'status': 'timeout',
+                'correlation_id': correlation_id,
                 'attempt_number': attempt_number,
                 'timeout_seconds': self.timeout,
                 'timed_out': True,
@@ -7511,12 +7747,22 @@ class ScriptRunner:
                 **monitor.get_summary()
             }
 
+            self._emit_event('timeout', {
+                'correlation_id': correlation_id,
+                'timeout_seconds': self.timeout,
+                'execution_time_seconds': round(execution_time, 4),
+                'attempt_number': attempt_number,
+            })
+
             result = {
                 'stdout': e.stdout or '',
                 'stderr': e.stderr or '',
                 'returncode': -1,
                 'success': False,
-                'metrics': self.metrics
+                'status': 'timeout',
+                'correlation_id': correlation_id,
+                'error_summary': error_summary,
+                'metrics': self.metrics,
             }
 
         except Exception as e:
@@ -7526,6 +7772,14 @@ class ScriptRunner:
             self.logger.error(f"Execution error: {e}")
             self.logger.debug(traceback.format_exc())
 
+            error_summary = {
+                'exit_code': -1,
+                'error': str(e),
+                'error_type': type(e).__name__,
+                'status': 'failed',
+                'correlation_id': correlation_id,
+            }
+
             self.metrics = {
                 'script_path': self.script_path,
                 'script_args': self.script_args,
@@ -7533,18 +7787,30 @@ class ScriptRunner:
                 'end_time': end_timestamp,
                 'exit_code': -1,
                 'success': False,
+                'status': 'failed',
+                'correlation_id': correlation_id,
                 'attempt_number': attempt_number,
                 'error': str(e),
                 'error_type': type(e).__name__,
-                'traceback': traceback.format_exc()
+                'traceback': traceback.format_exc(),
             }
+
+            self._emit_event('failure', {
+                'correlation_id': correlation_id,
+                'error': str(e),
+                'error_type': type(e).__name__,
+                'attempt_number': attempt_number,
+            })
 
             result = {
                 'stdout': '',
                 'stderr': str(e),
                 'returncode': -1,
                 'success': False,
-                'metrics': self.metrics
+                'status': 'failed',
+                'correlation_id': correlation_id,
+                'error_summary': error_summary,
+                'metrics': self.metrics,
             }
 
         finally:
