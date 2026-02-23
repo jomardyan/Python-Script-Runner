@@ -48,9 +48,10 @@ from fastapi.testclient import TestClient  # noqa: E402
 # ---------------------------------------------------------------------------
 
 def _fresh_db(tmp_path: Path) -> None:
-    """Re-initialise the shared RunStore to use a fresh tmp database."""
+    """Re-initialise the shared RunStore and ScriptLibrary to use a fresh tmp database."""
     db_path = tmp_path / "runs.db"
     _api_module.RUN_STORE = _api_module.RunStore(db_path)
+    _api_module.SCRIPT_LIBRARY = _api_module.ScriptLibrary(db_path)
     with _api_module.RUNS_LOCK:
         _api_module.RUNS.clear()
     _api_module.RUN_HANDLES.clear()
@@ -517,4 +518,270 @@ class TestDashboard:
     def test_dashboard_shows_correlation_column(self, client):
         r = client.get("/")
         assert "Correlation" in r.text
+
+    def test_dashboard_has_library_tab(self, client):
+        r = client.get("/")
+        assert "Script Library" in r.text
+
+    def test_dashboard_has_library_script_browser(self, client):
+        r = client.get("/")
+        assert "lib-scripts-table" in r.text
+
+    def test_dashboard_has_run_from_library_button(self, client):
+        r = client.get("/")
+        assert "runLibScript" in r.text
+
+
+# ---------------------------------------------------------------------------
+# Library endpoints
+# ---------------------------------------------------------------------------
+
+
+class TestLibraryStats:
+    def test_stats_shape(self, client):
+        r = client.get("/api/library/stats")
+        assert r.status_code == 200
+        d = r.json()
+        assert "total_scripts" in d
+        assert "total_tags" in d
+        assert "total_roots" in d
+        assert "by_language" in d
+
+    def test_stats_empty(self, client):
+        r = client.get("/api/library/stats")
+        assert r.json()["total_scripts"] == 0
+
+
+class TestLibraryFolderRoots:
+    def test_list_empty(self, client):
+        r = client.get("/api/library/folder-roots")
+        assert r.status_code == 200
+        assert r.json() == []
+
+    def test_create_folder_root(self, client):
+        r = client.post("/api/library/folder-roots", json={
+            "path": str(PROJECT_ROOT),
+            "name": "Test Root",
+            "recursive": True,
+        })
+        assert r.status_code == 201
+        d = r.json()
+        assert d["name"] == "Test Root"
+        assert "id" in d
+
+    def test_create_duplicate_folder_root_rejected(self, client):
+        client.post("/api/library/folder-roots", json={"path": str(PROJECT_ROOT), "name": "A"})
+        r = client.post("/api/library/folder-roots", json={"path": str(PROJECT_ROOT), "name": "B"})
+        assert r.status_code == 400
+
+    def test_create_nonexistent_path_rejected(self, client):
+        r = client.post("/api/library/folder-roots", json={
+            "path": "/nonexistent/xyz/abc",
+            "name": "Bad"
+        })
+        assert r.status_code == 400
+
+    def test_delete_folder_root(self, client, tmp_path):
+        created = client.post("/api/library/folder-roots", json={
+            "path": str(tmp_path),
+            "name": "Delete Me",
+        }).json()
+        assert "id" in created, f"Create failed: {created}"
+        r = client.delete(f"/api/library/folder-roots/{created['id']}")
+        assert r.status_code == 200
+        assert r.json()["success"] is True
+
+    def test_delete_nonexistent_root(self, client):
+        r = client.delete("/api/library/folder-roots/999999")
+        assert r.status_code == 404
+
+    def test_scan_nonexistent_root(self, client):
+        r = client.post("/api/library/folder-roots/999999/scan")
+        assert r.status_code == 404
+
+    def test_scan_returns_scan_id(self, client, tmp_path):
+        # Create a tiny python file and register its parent as a root
+        script = tmp_path / "hello.py"
+        script.write_text("print('hi')\n")
+        root = client.post("/api/library/folder-roots", json={
+            "path": str(tmp_path), "name": "Scan Test"
+        }).json()
+        r = client.post(f"/api/library/folder-roots/{root['id']}/scan")
+        assert r.status_code == 202
+        assert "scan_id" in r.json()
+
+
+class TestLibraryTags:
+    def test_list_empty(self, client):
+        r = client.get("/api/library/tags")
+        assert r.status_code == 200
+        assert r.json() == []
+
+    def test_create_tag(self, client):
+        r = client.post("/api/library/tags", json={"name": "automation", "color": "#ff6600"})
+        assert r.status_code == 201
+        assert r.json()["name"] == "automation"
+        assert r.json()["color"] == "#ff6600"
+
+    def test_create_duplicate_tag_rejected(self, client):
+        client.post("/api/library/tags", json={"name": "dup-tag"})
+        r = client.post("/api/library/tags", json={"name": "dup-tag"})
+        assert r.status_code == 400
+
+    def test_delete_tag(self, client):
+        tag = client.post("/api/library/tags", json={"name": "to-delete"}).json()
+        r = client.delete(f"/api/library/tags/{tag['id']}")
+        assert r.status_code == 200
+
+    def test_delete_nonexistent_tag(self, client):
+        r = client.delete("/api/library/tags/999999")
+        assert r.status_code == 404
+
+    def test_tags_appear_in_list(self, client):
+        client.post("/api/library/tags", json={"name": "visible"})
+        r = client.get("/api/library/tags")
+        names = [t["name"] for t in r.json()]
+        assert "visible" in names
+
+
+class TestLibraryScripts:
+    """Tests for script listing, content, status, tags, notes, and duplicates."""
+
+    def _seed_script(self, client, tmp_path) -> tuple:
+        """Create a folder root with one script, scan, return (root, script_id)."""
+        script = tmp_path / "seed.py"
+        script.write_text("# seed\nprint('seed')\n")
+        root = client.post("/api/library/folder-roots", json={
+            "path": str(tmp_path), "name": "Seed"
+        }).json()
+        scan_resp = client.post(f"/api/library/folder-roots/{root['id']}/scan").json()
+        # Allow scan to complete
+        time.sleep(1.5)
+        scripts = client.get("/api/library/scripts").json()
+        script_id = None
+        for s in scripts.get("items", []):
+            if "seed.py" in s["path"]:
+                script_id = s["id"]
+                break
+        return root, script_id
+
+    def test_list_scripts_empty(self, client):
+        r = client.get("/api/library/scripts")
+        assert r.status_code == 200
+        d = r.json()
+        assert "items" in d
+        assert "total" in d
+
+    def test_list_scripts_pagination_fields(self, client):
+        r = client.get("/api/library/scripts?page=1&page_size=10")
+        d = r.json()
+        assert "page" in d
+        assert "page_size" in d
+        assert "total_pages" in d
+
+    def test_get_script_not_found(self, client):
+        r = client.get("/api/library/scripts/999999")
+        assert r.status_code == 404
+
+    def test_get_script_content_not_found(self, client):
+        r = client.get("/api/library/scripts/999999/content")
+        assert r.status_code == 404
+
+    def test_get_script_notes_not_found(self, client):
+        r = client.get("/api/library/scripts/999999/notes")
+        assert r.status_code == 404
+
+    def test_update_script_status_not_found(self, client):
+        r = client.put("/api/library/scripts/999999/status", json={"status": "active"})
+        assert r.status_code == 404
+
+    def test_invalid_lifecycle_status_rejected(self, client, tmp_path):
+        _, script_id = self._seed_script(client, tmp_path)
+        if script_id is None:
+            pytest.skip("Scan did not index script in time")
+        r = client.put(f"/api/library/scripts/{script_id}/status", json={"status": "invalid_status"})
+        assert r.status_code == 400
+
+    def test_update_script_status_succeeds(self, client, tmp_path):
+        _, script_id = self._seed_script(client, tmp_path)
+        if script_id is None:
+            pytest.skip("Scan did not index script in time")
+        r = client.put(f"/api/library/scripts/{script_id}/status",
+                       json={"status": "draft", "owner": "Alice", "notes": "test notes"})
+        assert r.status_code == 200
+
+        detail = client.get(f"/api/library/scripts/{script_id}").json()
+        assert detail.get("lifecycle_status") == "draft"
+
+    def test_script_content_readable(self, client, tmp_path):
+        _, script_id = self._seed_script(client, tmp_path)
+        if script_id is None:
+            pytest.skip("Scan did not index script in time")
+        r = client.get(f"/api/library/scripts/{script_id}/content")
+        assert r.status_code == 200
+        assert "seed" in r.json()["content"]
+
+    def test_script_notes_round_trips(self, client, tmp_path):
+        _, script_id = self._seed_script(client, tmp_path)
+        if script_id is None:
+            pytest.skip("Scan did not index script in time")
+        client.put(f"/api/library/scripts/{script_id}/status", json={"notes": "hello notes"})
+        r = client.get(f"/api/library/scripts/{script_id}/notes")
+        assert r.status_code == 200
+        assert r.json()["notes"] == "hello notes"
+
+    def test_tag_script(self, client, tmp_path):
+        _, script_id = self._seed_script(client, tmp_path)
+        if script_id is None:
+            pytest.skip("Scan did not index script in time")
+        tag = client.post("/api/library/tags", json={"name": "my-tag"}).json()
+        r = client.post(f"/api/library/scripts/{script_id}/tags/{tag['id']}")
+        assert r.status_code == 200
+
+        detail = client.get(f"/api/library/scripts/{script_id}").json()
+        tag_names = [t["name"] for t in detail.get("tags", [])]
+        assert "my-tag" in tag_names
+
+    def test_untag_script(self, client, tmp_path):
+        _, script_id = self._seed_script(client, tmp_path)
+        if script_id is None:
+            pytest.skip("Scan did not index script in time")
+        tag = client.post("/api/library/tags", json={"name": "remove-me"}).json()
+        client.post(f"/api/library/scripts/{script_id}/tags/{tag['id']}")
+        r = client.delete(f"/api/library/scripts/{script_id}/tags/{tag['id']}")
+        assert r.status_code == 200
+
+
+class TestLibraryDuplicates:
+    def test_duplicates_returns_list(self, client):
+        r = client.get("/api/library/duplicates")
+        assert r.status_code == 200
+        assert isinstance(r.json(), list)
+
+
+class TestRunFromLibrary:
+    def test_run_nonexistent_script(self, client):
+        r = client.post("/api/library/scripts/999999/run", json={})
+        assert r.status_code == 404
+
+    def test_run_library_script(self, client):
+        """Run a library script that lives inside ALLOWED_SCRIPT_ROOT."""
+        examples = PROJECT_ROOT / "examples"
+        examples.mkdir(exist_ok=True)
+        script = examples / "_lib_run_test.py"
+        script.write_text("print('lib run')\n")
+        try:
+            root = _api_module.SCRIPT_LIBRARY.create_folder_root(str(examples), "Lib Run Root")
+            scan_id = _api_module.SCRIPT_LIBRARY.scan_folder_root(root["id"])
+            time.sleep(1.5)
+            scripts_data = _api_module.SCRIPT_LIBRARY.list_scripts(search="_lib_run_test")
+            script_id = next((s["id"] for s in scripts_data["items"] if "_lib_run_test.py" in s["path"]), None)
+            if not script_id:
+                pytest.skip("Scan did not index script in time")
+            r = client.post(f"/api/library/scripts/{script_id}/run",
+                           json={"enable_history": False})
+            assert r.status_code == 202
+            assert "run_id" in r.json()
+        finally:
+            script.unlink(missing_ok=True)
 

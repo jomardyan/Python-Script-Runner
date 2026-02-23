@@ -240,6 +240,66 @@
         .status-killed { background: var(--danger-bg); color: var(--danger-text); }
         .status-timeout { background: var(--warning-bg); color: var(--warning-text); }
 
+        /* Tabs */
+        .tab-nav {
+            display: flex;
+            gap: 0.25rem;
+            margin-bottom: 2rem;
+            border-bottom: 2px solid var(--border-color);
+        }
+        .tab-btn {
+            padding: 0.6rem 1.25rem;
+            border: none;
+            background: transparent;
+            color: var(--text-muted);
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            transition: color 0.15s, border-color 0.15s;
+        }
+        .tab-btn.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
+
+        /* Tags */
+        .tag-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.15rem 0.6rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            background: var(--info-bg);
+            color: var(--info-text);
+        }
+        .lang-badge {
+            display: inline-block;
+            padding: 0.15rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            background: var(--bg-color);
+            color: var(--text-muted);
+            border: 1px solid var(--border-color);
+        }
+        .lifecycle-badge {
+            display: inline-block;
+            padding: 0.15rem 0.5rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .lifecycle-active { background: var(--success-bg); color: var(--success-text); }
+        .lifecycle-draft { background: var(--info-bg); color: var(--info-text); }
+        .lifecycle-deprecated { background: var(--warning-bg); color: var(--warning-text); }
+        .lifecycle-archived { background: var(--bg-color); color: var(--text-muted); border: 1px solid var(--border-color); }
+
         .script-path {
             max-width: 300px;
             word-break: break-all;
@@ -448,6 +508,14 @@
             </div>
         </header>
 
+        <nav class="tab-nav">
+            <button class="tab-btn active" onclick="switchTab('runner', this)">🚀 Runner</button>
+            <button class="tab-btn" onclick="switchTab('library', this)">📚 Script Library</button>
+        </nav>
+
+        <!-- ===== RUNNER TAB ===== -->
+        <div id="tab-runner" class="tab-panel active">
+
         <div class="stats-grid">
             <div class="stat-card">
                 <div class="stat-value" id="stat-total">0</div>
@@ -628,7 +696,132 @@
                 <button id="next-page" class="btn btn-secondary btn-sm">Next</button>
             </div>
         </section>
-    </div>
+        </div><!-- /tab-runner -->
+
+        <!-- ===== LIBRARY TAB ===== -->
+        <div id="tab-library" class="tab-panel">
+
+            <!-- Library stats bar -->
+            <div class="stats-grid" style="margin-bottom: 1.5rem;">
+                <div class="stat-card">
+                    <div class="stat-value" id="lib-stat-scripts">0</div>
+                    <div class="stat-label">Indexed Scripts</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="lib-stat-roots">0</div>
+                    <div class="stat-label">Folder Roots</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="lib-stat-tags">0</div>
+                    <div class="stat-label">Tags</div>
+                </div>
+            </div>
+
+            <!-- Folder Roots -->
+            <section class="card">
+                <h2 style="margin-bottom: 1rem;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                    Folder Roots
+                    <button class="btn btn-secondary btn-sm" style="margin-left: auto;" onclick="showAddRootDialog()">+ Add Root</button>
+                </h2>
+                <div id="folder-roots-list">
+                    <p style="color: var(--text-muted); text-align: center; padding: 1rem;">Loading folder roots…</p>
+                </div>
+            </section>
+
+            <!-- Tags -->
+            <section class="card">
+                <h2 style="margin-bottom: 1rem;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                    Tags
+                    <button class="btn btn-secondary btn-sm" style="margin-left: auto;" onclick="showAddTagDialog()">+ Add Tag</button>
+                </h2>
+                <div id="lib-tags-list" style="display: flex; flex-wrap: wrap; gap: 0.5rem; min-height: 2rem;">
+                    <span style="color: var(--text-muted);">Loading…</span>
+                </div>
+            </section>
+
+            <!-- Script Browser -->
+            <section class="card">
+                <h2 style="margin-bottom: 1rem;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    Script Browser
+                </h2>
+
+                <!-- Filters -->
+                <div class="controls" style="flex-wrap: wrap;">
+                    <div class="form-group" style="flex-direction: row; align-items: center; gap: 0.5rem;">
+                        <label>Search:</label>
+                        <input type="text" id="lib-search" placeholder="name or path…" style="padding: 0.4rem; min-width: 180px;" oninput="debouncedLibSearch()" />
+                    </div>
+                    <div class="form-group" style="flex-direction: row; align-items: center; gap: 0.5rem;">
+                        <label>Language:</label>
+                        <select id="lib-lang-filter" style="padding: 0.4rem;" onchange="fetchLibScripts()">
+                            <option value="">All</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="flex-direction: row; align-items: center; gap: 0.5rem;">
+                        <label>Status:</label>
+                        <select id="lib-status-filter" style="padding: 0.4rem;" onchange="fetchLibScripts()">
+                            <option value="">All</option>
+                            <option value="active">Active</option>
+                            <option value="draft">Draft</option>
+                            <option value="deprecated">Deprecated</option>
+                            <option value="archived">Archived</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="flex-direction: row; align-items: center; gap: 0.5rem;">
+                        <label>Tag:</label>
+                        <select id="lib-tag-filter" style="padding: 0.4rem;" onchange="fetchLibScripts()">
+                            <option value="">All</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="flex-direction: row; align-items: center; gap: 0.5rem;">
+                        <label>Root:</label>
+                        <select id="lib-root-filter" style="padding: 0.4rem;" onchange="fetchLibScripts()">
+                            <option value="">All</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-secondary btn-sm" onclick="fetchLibDuplicates()">🔍 Find Duplicates</button>
+                </div>
+
+                <div style="overflow-x: auto;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th class="hide-mobile">Path</th>
+                                <th>Language</th>
+                                <th>Status</th>
+                                <th class="hide-mobile">Tags</th>
+                                <th class="hide-mobile">Lines</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="lib-scripts-table">
+                            <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Add a folder root and scan to index scripts.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="pagination" style="margin-top: 1rem;">
+                    <button id="lib-prev-page" class="btn btn-secondary btn-sm" disabled onclick="libChangePage(-1)">Previous</button>
+                    <span id="lib-page-info" style="display: flex; align-items: center; font-size: 0.9rem; color: var(--text-muted);">Page 1</span>
+                    <button id="lib-next-page" class="btn btn-secondary btn-sm" onclick="libChangePage(1)">Next</button>
+                </div>
+            </section>
+
+            <!-- Duplicates panel (hidden by default) -->
+            <section class="card" id="lib-duplicates-panel" style="display: none;">
+                <h2 style="margin-bottom: 1rem;">
+                    ⚠️ Duplicate Scripts
+                    <button class="btn btn-secondary btn-sm" style="margin-left: auto;" onclick="document.getElementById('lib-duplicates-panel').style.display='none'">Close</button>
+                </h2>
+                <div id="lib-duplicates-list"></div>
+            </section>
+        </div><!-- /tab-library -->
+
+    </div><!-- /container -->
 
     <footer>
         <div class="container" style="text-align: center; color: var(--text-muted); font-size: 0.875rem;">
@@ -1066,6 +1259,325 @@
             fetchStats();
             fetchSystemStatus();
         }, 5000);
+
+        // =====================================================================
+        // Library Tab JavaScript
+        // =====================================================================
+
+        let libPage = 1;
+        let libSearchTimer = null;
+
+        function switchTab(name, btn) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+            document.getElementById('tab-' + name).classList.add('active');
+            if (btn) btn.classList.add('active');
+            if (name === 'library') {
+                fetchLibStats();
+                fetchFolderRoots();
+                fetchLibTags();
+                fetchLibScripts();
+            }
+        }
+
+        function debouncedLibSearch() {
+            clearTimeout(libSearchTimer);
+            libSearchTimer = setTimeout(() => { libPage = 1; fetchLibScripts(); }, 400);
+        }
+
+        // --- Library Stats ---
+        async function fetchLibStats() {
+            try {
+                const r = await fetch('/api/library/stats');
+                if (!r.ok) return;
+                const d = await r.json();
+                document.getElementById('lib-stat-scripts').textContent = d.total_scripts ?? 0;
+                document.getElementById('lib-stat-roots').textContent = d.total_roots ?? 0;
+                document.getElementById('lib-stat-tags').textContent = d.total_tags ?? 0;
+
+                // Populate language filter
+                const langSel = document.getElementById('lib-lang-filter');
+                const curLang = langSel.value;
+                langSel.innerHTML = '<option value="">All</option>';
+                for (const [lang, cnt] of Object.entries(d.by_language || {})) {
+                    const opt = document.createElement('option');
+                    opt.value = lang; opt.textContent = `${lang} (${cnt})`;
+                    if (lang === curLang) opt.selected = true;
+                    langSel.appendChild(opt);
+                }
+            } catch(e) { console.error('lib stats', e); }
+        }
+
+        // --- Folder Roots ---
+        async function fetchFolderRoots() {
+            try {
+                const r = await fetch('/api/library/folder-roots');
+                if (!r.ok) return;
+                const roots = await r.json();
+                const container = document.getElementById('folder-roots-list');
+
+                // Populate root filter select
+                const rootSel = document.getElementById('lib-root-filter');
+                const curRoot = rootSel.value;
+                rootSel.innerHTML = '<option value="">All</option>';
+                roots.forEach(root => {
+                    const opt = document.createElement('option');
+                    opt.value = root.id; opt.textContent = root.name;
+                    if (String(root.id) === curRoot) opt.selected = true;
+                    rootSel.appendChild(opt);
+                });
+
+                if (!roots.length) {
+                    container.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 1rem;">No folder roots added yet.</p>';
+                    return;
+                }
+                container.innerHTML = roots.map(root => `
+                    <div style="display:flex; align-items:center; gap:1rem; padding:0.75rem 0; border-bottom:1px solid var(--border-color);">
+                        <div style="flex:1; min-width:0;">
+                            <div style="font-weight:600;">${root.name}</div>
+                            <div style="font-size:0.8rem; color:var(--text-muted); word-break:break-all;">${root.path}</div>
+                            <div style="font-size:0.75rem; color:var(--text-muted);">
+                                ${root.recursive ? '↳ recursive' : '↳ flat'} 
+                                ${root.last_scan_at ? '· Last scan: ' + new Date(root.last_scan_at).toLocaleString() : '· Never scanned'}
+                            </div>
+                        </div>
+                        <div style="display:flex; gap:0.5rem; flex-shrink:0;">
+                            <button class="btn btn-secondary btn-sm" onclick="triggerScan(${root.id}, this)">Scan</button>
+                            <button class="btn btn-secondary btn-sm" style="color:var(--danger-text);" onclick="deleteRoot(${root.id})">Delete</button>
+                        </div>
+                    </div>
+                `).join('');
+            } catch(e) { console.error('folder roots', e); }
+        }
+
+        async function triggerScan(rootId, btn) {
+            btn.disabled = true; btn.textContent = 'Scanning…';
+            try {
+                const r = await fetch(`/api/library/folder-roots/${rootId}/scan`, { method: 'POST' });
+                if (!r.ok) { showToast('Scan failed', 'error'); return; }
+                const d = await r.json();
+                showToast(`Scan started (id: ${d.scan_id})`);
+                // Poll until complete
+                const poll = setInterval(async () => {
+                    try {
+                        const sr = await fetch(`/api/library/folder-roots/${rootId}/scan/${d.scan_id}`);
+                        if (!sr.ok) return;
+                        const sd = await sr.json();
+                        if (sd.status !== 'running') {
+                            clearInterval(poll);
+                            btn.disabled = false; btn.textContent = 'Scan';
+                            fetchFolderRoots();
+                            fetchLibStats();
+                            fetchLibScripts();
+                            showToast(`Scan done: +${sd.new_count} new, ${sd.updated_count} updated, ${sd.deleted_count} removed`);
+                        }
+                    } catch(e) { clearInterval(poll); btn.disabled = false; btn.textContent = 'Scan'; }
+                }, 1500);
+            } catch(e) { btn.disabled = false; btn.textContent = 'Scan'; showToast('Network error', 'error'); }
+        }
+
+        async function deleteRoot(rootId) {
+            if (!confirm('Delete this folder root and remove all its indexed scripts?')) return;
+            await fetch(`/api/library/folder-roots/${rootId}`, { method: 'DELETE' });
+            fetchFolderRoots();
+            fetchLibStats();
+            fetchLibScripts();
+        }
+
+        function showAddRootDialog() {
+            const name = prompt('Root name (display label):');
+            if (!name) return;
+            const path = prompt('Folder path (absolute):');
+            if (!path) return;
+            fetch('/api/library/folder-roots', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path, name, recursive: true })
+            }).then(async r => {
+                if (!r.ok) { const e = await r.json(); showToast(e.detail || 'Error', 'error'); return; }
+                showToast('Folder root added');
+                fetchFolderRoots();
+                fetchLibStats();
+            });
+        }
+
+        // --- Tags ---
+        async function fetchLibTags() {
+            try {
+                const r = await fetch('/api/library/tags');
+                if (!r.ok) return;
+                const tags = await r.json();
+                const container = document.getElementById('lib-tags-list');
+                const tagSel = document.getElementById('lib-tag-filter');
+                const curTag = tagSel.value;
+                tagSel.innerHTML = '<option value="">All</option>';
+                tags.forEach(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t.name; opt.textContent = `${t.name} (${t.script_count})`;
+                    if (t.name === curTag) opt.selected = true;
+                    tagSel.appendChild(opt);
+                });
+                if (!tags.length) {
+                    container.innerHTML = '<span style="color:var(--text-muted)">No tags yet.</span>';
+                    return;
+                }
+                container.innerHTML = tags.map(t => `
+                    <span class="tag-pill" style="background:${t.color}22; color:${t.color}; border:1px solid ${t.color}44;">
+                        ${t.name} <small>(${t.script_count})</small>
+                        <button style="border:none;background:none;cursor:pointer;font-size:0.9rem;color:${t.color};" title="Delete" onclick="deleteTag(${t.id}, event)">×</button>
+                    </span>
+                `).join('');
+            } catch(e) { console.error('tags', e); }
+        }
+
+        function showAddTagDialog() {
+            const name = prompt('Tag name:');
+            if (!name) return;
+            const color = prompt('Tag color (hex, e.g. #6366f1):', '#6366f1') || '#6366f1';
+            fetch('/api/library/tags', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, color })
+            }).then(async r => {
+                if (!r.ok) { const e = await r.json(); showToast(e.detail || 'Error', 'error'); return; }
+                showToast('Tag created');
+                fetchLibTags();
+            });
+        }
+
+        async function deleteTag(tagId, e) {
+            e.stopPropagation();
+            if (!confirm('Delete this tag?')) return;
+            await fetch(`/api/library/tags/${tagId}`, { method: 'DELETE' });
+            fetchLibTags();
+            fetchLibScripts();
+        }
+
+        // --- Script Browser ---
+        async function fetchLibScripts() {
+            const params = new URLSearchParams();
+            params.set('page', libPage);
+            params.set('page_size', 50);
+            const search = document.getElementById('lib-search').value.trim();
+            if (search) params.set('search', search);
+            const lang = document.getElementById('lib-lang-filter').value;
+            if (lang) params.set('language', lang);
+            const status = document.getElementById('lib-status-filter').value;
+            if (status) params.set('status', status);
+            const tag = document.getElementById('lib-tag-filter').value;
+            if (tag) params.set('tag', tag);
+            const root = document.getElementById('lib-root-filter').value;
+            if (root) params.set('root_id', root);
+
+            try {
+                const r = await fetch('/api/library/scripts?' + params.toString());
+                if (!r.ok) return;
+                const data = await r.json();
+                const tbody = document.getElementById('lib-scripts-table');
+
+                document.getElementById('lib-page-info').textContent = `Page ${data.page} / ${data.total_pages} (${data.total} scripts)`;
+                document.getElementById('lib-prev-page').disabled = data.page <= 1;
+                document.getElementById('lib-next-page').disabled = data.page >= data.total_pages;
+
+                if (!data.items.length) {
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--text-muted)">No scripts found.</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = data.items.map(s => {
+                    const tags = (s.tags || []).map(t => `<span class="tag-pill">${t}</span>`).join(' ');
+                    const status = s.lifecycle_status || 'active';
+                    const statusCls = { active:'lifecycle-active', draft:'lifecycle-draft', deprecated:'lifecycle-deprecated', archived:'lifecycle-archived' }[status] || 'lifecycle-active';
+                    return `<tr>
+                        <td style="font-weight:500;">${s.name}</td>
+                        <td class="hide-mobile"><div class="script-path" style="font-size:0.8rem;color:var(--text-muted);">${s.path}</div></td>
+                        <td>${s.language ? `<span class="lang-badge">${s.language}</span>` : '—'}</td>
+                        <td><span class="lifecycle-badge ${statusCls}">${status}</span></td>
+                        <td class="hide-mobile">${tags || '—'}</td>
+                        <td class="hide-mobile" style="font-size:0.85rem;">${s.line_count ?? '—'}</td>
+                        <td class="actions">
+                            <button class="btn btn-secondary btn-sm" onclick="viewLibScriptContent(${s.id}, '${s.name.replace(/'/g,"\\'")}')">View</button>
+                            <button class="btn btn-secondary btn-sm" onclick="editLibScriptStatus(${s.id}, '${s.name.replace(/'/g,"\\'")}')" title="Edit status/notes">Edit</button>
+                            <button class="btn btn-primary btn-sm" onclick="runLibScript(${s.id}, '${s.path.replace(/'/g,"\\'")}')">▶ Run</button>
+                        </td>
+                    </tr>`;
+                }).join('');
+            } catch(e) { console.error('lib scripts', e); }
+        }
+
+        function libChangePage(delta) {
+            libPage = Math.max(1, libPage + delta);
+            fetchLibScripts();
+        }
+
+        async function viewLibScriptContent(scriptId, name) {
+            document.getElementById('modal-title').textContent = `📄 ${name}`;
+            document.getElementById('modal').style.display = 'flex';
+            const pre = document.getElementById('modal-body');
+            pre.textContent = 'Loading…';
+            try {
+                const r = await fetch(`/api/library/scripts/${scriptId}/content`);
+                if (!r.ok) { pre.textContent = 'Could not load file.'; return; }
+                const d = await r.json();
+                pre.textContent = d.content;
+            } catch(e) { pre.textContent = 'Error loading content.'; }
+        }
+
+        async function editLibScriptStatus(scriptId, name) {
+            // Fetch current values
+            const r = await fetch(`/api/library/scripts/${scriptId}`);
+            const s = r.ok ? await r.json() : {};
+            const status = prompt(`Status (active/draft/deprecated/archived):`, s.lifecycle_status || 'active');
+            if (status === null) return;
+            const owner = prompt('Owner:', s.owner || '');
+            if (owner === null) return;
+            const notes = prompt('Notes:', s.notes || '');
+            if (notes === null) return;
+            await fetch(`/api/library/scripts/${scriptId}/status`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status, owner, notes })
+            });
+            showToast('Updated');
+            fetchLibScripts();
+        }
+
+        async function runLibScript(scriptId, path) {
+            const r = await fetch(`/api/library/scripts/${scriptId}/run`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enable_history: false })
+            });
+            if (!r.ok) { const e = await r.json(); showToast(e.detail || 'Error', 'error'); return; }
+            const d = await r.json();
+            showToast(`Run queued: ${d.run_id ? d.run_id.slice(0,8) : ''}…`);
+            // Switch to runner tab to show progress
+            document.querySelector('.tab-btn[onclick*="runner"]').click();
+            setTimeout(fetchRuns, 500);
+        }
+
+        // --- Duplicates ---
+        async function fetchLibDuplicates() {
+            const panel = document.getElementById('lib-duplicates-panel');
+            panel.style.display = 'block';
+            const list = document.getElementById('lib-duplicates-list');
+            list.innerHTML = '<p style="color:var(--text-muted)">Loading…</p>';
+            try {
+                const r = await fetch('/api/library/duplicates');
+                if (!r.ok) return;
+                const dups = await r.json();
+                if (!dups.length) { list.innerHTML = '<p style="color:var(--success-text)">✓ No duplicates found.</p>'; return; }
+                list.innerHTML = dups.map(d => `
+                    <div style="margin-bottom:1rem; padding:1rem; background:var(--bg-color); border-radius:0.5rem;">
+                        <div style="font-weight:600; margin-bottom:0.5rem;">📄 ${d.name} <span style="font-size:0.8rem; color:var(--text-muted);">${d.count} copies · ${d.line_count} lines · ${(d.size/1024).toFixed(1)} KB</span></div>
+                        <ul style="margin:0; padding-left:1.5rem; font-size:0.85rem; color:var(--text-muted);">
+                            ${d.paths.map(p => `<li>${p}</li>`).join('')}
+                        </ul>
+                    </div>
+                `).join('');
+            } catch(e) { list.innerHTML = '<p style="color:var(--danger-text)">Error loading duplicates.</p>'; }
+        }
+
     </script>
 </body>
 </html>
