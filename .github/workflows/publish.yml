@@ -1,6 +1,9 @@
 name: Publish Package
 
 on:
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
   release:
     types: [published]
   push:
@@ -14,6 +17,9 @@ concurrency:
 jobs:
   validate-version:
     runs-on: ubuntu-latest
+    if: >
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
     outputs:
       version: ${{ steps.get-version.outputs.version }}
       tag_name: ${{ steps.get-version.outputs.tag_name }}
@@ -26,7 +32,17 @@ jobs:
       - name: Extract version from tag
         id: get-version
         run: |
-          TAG="${GITHUB_REF#refs/tags/}"
+          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            HEAD_BRANCH="${{ github.event.workflow_run.head_branch }}"
+            if [[ "$HEAD_BRANCH" =~ ^v[0-9]+\. ]]; then
+              TAG="$HEAD_BRANCH"
+            else
+              git fetch --tags
+              TAG=$(git tag --sort=-version:refname --list 'v*.*.*' | head -1)
+            fi
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
           VERSION="${TAG#v}"
           echo "tag_name=${TAG}" >> $GITHUB_OUTPUT
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
