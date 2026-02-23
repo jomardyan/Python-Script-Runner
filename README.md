@@ -2,8 +2,18 @@
 
 A production-grade Python script execution engine with comprehensive monitoring, alerting, analytics, and real-time visualization.
 
-[![PyPI Downloads](https://static.pepy.tech/personalized-badge/python-script-runner?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/python-script-runner)
-![Version](https://img.shields.io/badge/version-7.4.4-blue)
+[![PyPI version](https://img.shields.io/pypi/v/python-script-runner?color=blue&logo=pypi&logoColor=white)](https://pypi.org/project/python-script-runner/)
+[![PyPI Downloads](https://static.pepy.tech/personalized-badge/python-script-runner?period=total&units=INTERNATIONAL_SYSTEM&left_color=black&right_color=brightgreen&left_text=downloads)](https://pepy.tech/projects/python-script-runner)
+[![PyPI - Downloads/Month](https://img.shields.io/pypi/dm/python-script-runner?color=brightgreen&logo=pypi&logoColor=white&label=downloads%2Fmonth)](https://pypi.org/project/python-script-runner/)
+[![Python Versions](https://img.shields.io/pypi/pyversions/python-script-runner?logo=python&logoColor=white)](https://pypi.org/project/python-script-runner/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![GitHub stars](https://img.shields.io/github/stars/jomardyan/Python-Script-Runner?style=social)](https://github.com/jomardyan/Python-Script-Runner/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/jomardyan/Python-Script-Runner?style=social)](https://github.com/jomardyan/Python-Script-Runner/network/members)
+[![GitHub issues](https://img.shields.io/github/issues/jomardyan/Python-Script-Runner?logo=github)](https://github.com/jomardyan/Python-Script-Runner/issues)
+[![GitHub last commit](https://img.shields.io/github/last-commit/jomardyan/Python-Script-Runner?logo=github)](https://github.com/jomardyan/Python-Script-Runner/commits)
+[![CI](https://img.shields.io/github/actions/workflow/status/jomardyan/Python-Script-Runner/tests.yml?branch=main&label=CI&logo=github-actions&logoColor=white)](https://github.com/jomardyan/Python-Script-Runner/actions)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/jomardyan/Python-Script-Runner/pulls)
 
 ---
 
