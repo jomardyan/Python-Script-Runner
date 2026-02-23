@@ -241,7 +241,7 @@ jobs:
           if [[ "$TAG" =~ ^v[0-9] ]]; then
             VERSION=${TAG#v}
           else
-            VERSION=$(python -c "import re; m=re.search(r'__version__\s*=\s*\"([^\"]+)\"', open('runner.py').read()); print(m.group(1))")
+            VERSION=$(python -c "import re; m=re.search(r'__version__\s*=\s*\"([^\"]+)\"', open('runner.py', encoding='utf-8').read()); print(m.group(1))")
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Building Windows EXE for version: $VERSION"
@@ -385,7 +385,7 @@ jobs:
           if [[ "$TAG" =~ ^v[0-9] ]]; then
             VERSION=${TAG#v}
           else
-            VERSION=$(python -c "import re; m=re.search(r'__version__\s*=\s*\"([^\"]+)\"', open('runner.py').read()); print(m.group(1))")
+            VERSION=$(python -c "import re; m=re.search(r'__version__\s*=\s*\"([^\"]+)\"', open('runner.py', encoding='utf-8').read()); print(m.group(1))")
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Building Linux DEB for version: $VERSION"
