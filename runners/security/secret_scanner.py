@@ -476,7 +476,7 @@ class SecretManagerAdapter:
 class SecretScanner:
     """Combined secret scanning and management."""
 
-    def __init__(self, vault_type: str | None = None, vault_address: str | None = None, **_: Any):
+    def __init__(self, vault_type: Optional[str] = None, vault_address: Optional[str] = None, **_: Any):
         """Initialize secret scanner."""
         self.logger = logging.getLogger(__name__)
         self.scanner = DetectSecretsScanner()

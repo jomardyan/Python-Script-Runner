@@ -199,7 +199,7 @@ class RunStore:
         }
 
 
-app = FastAPI(title="Script Runner Web API", version="1.1.0")
+app = FastAPI(title="Script Runner Web API", version="1.2.0")
 
 RUNS: Dict[str, RunRecord] = {}
 RUNS_LOCK = threading.Lock()
