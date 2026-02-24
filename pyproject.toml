@@ -69,6 +69,10 @@ python-script-runner = "runner:main"
 [tool.setuptools]
 py-modules = ["runner"]
 
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["runners*"]
+
 [tool.black]
 line-length = 120
 target-version = ['py36', 'py37', 'py38', 'py39', 'py310', 'py311']
