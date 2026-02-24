@@ -15,7 +15,7 @@ Core Features:
 Executes a target Python script and collects comprehensive execution statistics.
 """
 
-__version__ = "7.4.4"
+__version__ = "7.4.5"
 __author__ = "Hayk Jomardyan"
 __license__ = "MIT"
 
