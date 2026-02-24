@@ -1202,7 +1202,7 @@ class TestRunnersPackageIntegration:
         script_file = tmp_path / "test.py"
         script_file.write_text("print('test')")
 
-        runner = ScriptRunner(str(script_file))
+        runner = ScriptRunner(str(script_file), enable_history=False)
         result = runner.enable_v7_feature('workflows')
 
         assert result is True
@@ -1216,7 +1216,7 @@ class TestRunnersPackageIntegration:
         script_file = tmp_path / "test.py"
         script_file.write_text("print('test')")
 
-        runner = ScriptRunner(str(script_file))
+        runner = ScriptRunner(str(script_file), enable_history=False)
         result = runner.enable_v7_feature('security')
 
         assert result is True
@@ -1230,7 +1230,7 @@ class TestRunnersPackageIntegration:
         script_file = tmp_path / "test.py"
         script_file.write_text("print('test')")
 
-        runner = ScriptRunner(str(script_file))
+        runner = ScriptRunner(str(script_file), enable_history=False)
         result = runner.enable_v7_feature('dependencies')
 
         assert result is True
@@ -1244,7 +1244,7 @@ class TestRunnersPackageIntegration:
         script_file = tmp_path / "test.py"
         script_file.write_text("print('test')")
 
-        runner = ScriptRunner(str(script_file))
+        runner = ScriptRunner(str(script_file), enable_history=False)
         result = runner.enable_v7_feature('secrets')
 
         assert result is True
@@ -1258,7 +1258,7 @@ class TestRunnersPackageIntegration:
         script_file = tmp_path / "test.py"
         script_file.write_text("print('test')")
 
-        runner = ScriptRunner(str(script_file))
+        runner = ScriptRunner(str(script_file), enable_history=False)
         result = runner.enable_v7_feature('costs')
 
         assert result is True
@@ -1272,7 +1272,7 @@ class TestRunnersPackageIntegration:
         script_file = tmp_path / "test.py"
         script_file.write_text("print('test')")
 
-        runner = ScriptRunner(str(script_file))
+        runner = ScriptRunner(str(script_file), enable_history=False)
         runner._initialize_v7_features({'v7_features': {'enable_workflows': True}})
 
         assert runner.enable_workflows is True
@@ -1283,7 +1283,7 @@ class TestRunnersPackageIntegration:
         script_file = tmp_path / "clean.py"
         script_file.write_text("print('Hello, world!')\n")
 
-        runner = ScriptRunner(str(script_file))
+        runner = ScriptRunner(str(script_file), enable_history=False)
         runner.enable_v7_feature('security')
 
         # Real analysis on a benign file must not raise and must return True or False
@@ -1295,7 +1295,7 @@ class TestRunnersPackageIntegration:
         script_file = tmp_path / "clean.py"
         script_file.write_text("print('no secrets here')\n")
 
-        runner = ScriptRunner(str(script_file))
+        runner = ScriptRunner(str(script_file), enable_history=False)
         runner.enable_v7_feature('secrets')
 
         runner.run_pre_execution_security_checks()
