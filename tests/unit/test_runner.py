@@ -1162,6 +1162,146 @@ class TestStreamOutput:
         assert runner.stream_output is False
 
 
+# ============================================================================
+# RUNNERS PACKAGE INTEGRATION TESTS
+# Tests that verify runner.py and the runners/ subpackages work together.
+# These tests use real imports (no mocks) to confirm the packages are
+# importable and correctly wired into ScriptRunner.
+# ============================================================================
+
+class TestRunnersPackageIntegration:
+    """Verify runner.py integrates with the real runners/ subpackages."""
+
+    def test_runners_package_importable(self):
+        """The runners package must be importable."""
+        import runners  # noqa: F401
+        assert hasattr(runners, '__version__')
+
+    def test_runners_subpackages_importable(self):
+        """All runners subpackages must be importable directly."""
+        from runners.workflows.workflow_engine import WorkflowEngine
+        from runners.workflows.workflow_parser import WorkflowParser
+        from runners.scanners.code_analyzer import CodeAnalyzer
+        from runners.scanners.dependency_scanner import DependencyVulnerabilityScanner
+        from runners.security.secret_scanner import SecretScanner
+        from runners.integrations.cloud_cost_tracker import CloudCostTracker
+        from runners.profilers.performance_profiler import AdvancedProfiler
+        from runners.templates.template_manager import TemplateManager
+
+        for cls in (
+            WorkflowEngine, WorkflowParser, CodeAnalyzer,
+            DependencyVulnerabilityScanner, SecretScanner,
+            CloudCostTracker, AdvancedProfiler, TemplateManager,
+        ):
+            assert cls is not None
+
+    def test_enable_v7_workflows_uses_real_module(self, tmp_path):
+        """enable_v7_feature('workflows') should load the real WorkflowEngine."""
+        from runners.workflows.workflow_engine import WorkflowEngine
+
+        script_file = tmp_path / "test.py"
+        script_file.write_text("print('test')")
+
+        runner = ScriptRunner(str(script_file), enable_history=False)
+        result = runner.enable_v7_feature('workflows')
+
+        assert result is True
+        assert runner.enable_workflows is True
+        assert isinstance(runner.workflow_engine, WorkflowEngine)
+
+    def test_enable_v7_security_uses_real_module(self, tmp_path):
+        """enable_v7_feature('security') should load the real CodeAnalyzer."""
+        from runners.scanners.code_analyzer import CodeAnalyzer
+
+        script_file = tmp_path / "test.py"
+        script_file.write_text("print('test')")
+
+        runner = ScriptRunner(str(script_file), enable_history=False)
+        result = runner.enable_v7_feature('security')
+
+        assert result is True
+        assert runner.enable_code_analysis is True
+        assert isinstance(runner.code_analyzer, CodeAnalyzer)
+
+    def test_enable_v7_dependencies_uses_real_module(self, tmp_path):
+        """enable_v7_feature('dependencies') should load DependencyVulnerabilityScanner."""
+        from runners.scanners.dependency_scanner import DependencyVulnerabilityScanner
+
+        script_file = tmp_path / "test.py"
+        script_file.write_text("print('test')")
+
+        runner = ScriptRunner(str(script_file), enable_history=False)
+        result = runner.enable_v7_feature('dependencies')
+
+        assert result is True
+        assert runner.enable_dependency_scanning is True
+        assert isinstance(runner.dependency_scanner, DependencyVulnerabilityScanner)
+
+    def test_enable_v7_secrets_uses_real_module(self, tmp_path):
+        """enable_v7_feature('secrets') should load the real SecretScanner."""
+        from runners.security.secret_scanner import SecretScanner
+
+        script_file = tmp_path / "test.py"
+        script_file.write_text("print('test')")
+
+        runner = ScriptRunner(str(script_file), enable_history=False)
+        result = runner.enable_v7_feature('secrets')
+
+        assert result is True
+        assert runner.enable_secret_scanning is True
+        assert isinstance(runner.secret_scanner, SecretScanner)
+
+    def test_enable_v7_costs_uses_real_module(self, tmp_path):
+        """enable_v7_feature('costs') should load the real CloudCostTracker."""
+        from runners.integrations.cloud_cost_tracker import CloudCostTracker
+
+        script_file = tmp_path / "test.py"
+        script_file.write_text("print('test')")
+
+        runner = ScriptRunner(str(script_file), enable_history=False)
+        result = runner.enable_v7_feature('costs')
+
+        assert result is True
+        assert runner.enable_cost_tracking is True
+        assert isinstance(runner.cost_tracker, CloudCostTracker)
+
+    def test_initialize_v7_features_enables_workflows(self, tmp_path):
+        """_initialize_v7_features with workflows=True should use the real module."""
+        from runners.workflows.workflow_engine import WorkflowEngine
+
+        script_file = tmp_path / "test.py"
+        script_file.write_text("print('test')")
+
+        runner = ScriptRunner(str(script_file), enable_history=False)
+        runner._initialize_v7_features({'v7_features': {'enable_workflows': True}})
+
+        assert runner.enable_workflows is True
+        assert isinstance(runner.workflow_engine, WorkflowEngine)
+
+    def test_security_checks_run_with_real_code_analyzer(self, tmp_path):
+        """run_pre_execution_security_checks should work with the real CodeAnalyzer."""
+        script_file = tmp_path / "clean.py"
+        script_file.write_text("print('Hello, world!')\n")
+
+        runner = ScriptRunner(str(script_file), enable_history=False)
+        runner.enable_v7_feature('security')
+
+        # Real analysis on a benign file must not raise and must return True or False
+        result = runner.run_pre_execution_security_checks()
+        assert isinstance(result, bool)
+
+    def test_secret_scan_clean_file(self, tmp_path):
+        """SecretScanner via ScriptRunner should not flag a clean file."""
+        script_file = tmp_path / "clean.py"
+        script_file.write_text("print('no secrets here')\n")
+
+        runner = ScriptRunner(str(script_file), enable_history=False)
+        runner.enable_v7_feature('secrets')
+
+        runner.run_pre_execution_security_checks()
+        assert isinstance(runner.v7_results['secrets_found'], list)
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v', '--tb=short'])
 

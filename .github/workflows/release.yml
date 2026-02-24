@@ -139,6 +139,7 @@ jobs:
         run: |
           mkdir -p dist/python3-runner
           cp runner.py dist/python3-runner/
+          cp -r runners dist/python3-runner/runners
           cp requirements.txt dist/python3-runner/
           cp LICENSE dist/python3-runner/
           cp README.md dist/python3-runner/
@@ -410,6 +411,7 @@ jobs:
           mkdir -p "$PKG_DIR/usr/share/doc/python-script-runner"
           
           cp runner.py "$PKG_DIR/usr/lib/python-script-runner/"
+          cp -r runners "$PKG_DIR/usr/lib/python-script-runner/runners"
           cp requirements.txt "$PKG_DIR/usr/lib/python-script-runner/"
           cp LICENSE "$PKG_DIR/usr/share/doc/python-script-runner/copyright"
           cp README.md "$PKG_DIR/usr/share/doc/python-script-runner/"
@@ -511,6 +513,7 @@ jobs:
         run: |
           mkdir -p dist/pypy3-runner
           cp runner.py dist/pypy3-runner/
+          cp -r runners dist/pypy3-runner/runners
           cp requirements.txt dist/pypy3-runner/
           cp requirements-pypy3.txt dist/pypy3-runner/ || true
           cp LICENSE dist/pypy3-runner/
