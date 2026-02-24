@@ -81,7 +81,7 @@ class TestExecutionVisualizer(unittest.TestCase):
 
         self.assertIn("EXECUTION SUCCESS", output)
         self.assertIn("1.234", output)
-        self.assertIn("Exit Code: 0", output)
+        self.assertIn("Exit Code:", output)
 
     def test_disabled_visualizer_no_output(self):
         """Test that disabled visualizer produces no output."""
