@@ -1,5 +1,6 @@
 """Unit tests for Secret Scanning & Vault Integration."""
 
+import importlib
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -190,6 +191,10 @@ class TestVaultIntegration:
         # Should not raise
         assert scanner is not None
     
+    @pytest.mark.skipif(
+        importlib.util.find_spec('hvac') is None,
+        reason='hvac not installed'
+    )
     @patch('hvac.Client')
     def test_vault_adapter(self, mock_hvac):
         """Test HashiCorp Vault integration."""

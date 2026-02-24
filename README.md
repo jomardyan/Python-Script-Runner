@@ -1,6 +1,6 @@
 # Python Script Runner
 
-A production-grade Python script execution engine with comprehensive monitoring, alerting, analytics, and real-time visualization.
+A production-grade Python script execution engine with comprehensive monitoring, alerting, analytics, real-time visualization, and a full REST API dashboard.
 
 [![PyPI version](https://img.shields.io/pypi/v/python-script-runner?color=blue&logo=pypi&logoColor=white)](https://pypi.org/project/python-script-runner/)
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/python-script-runner?period=total&units=INTERNATIONAL_SYSTEM&left_color=black&right_color=brightgreen&left_text=downloads)](https://pepy.tech/projects/python-script-runner)
@@ -27,11 +27,14 @@ A production-grade Python script execution engine with comprehensive monitoring,
 - **History & trend analysis** — SQLite persistence with anomaly detection (IQR, Z-score, MAD)
 - **CI/CD integration** — JUnit XML, TAP output, performance gates, baseline comparison
 - **Remote execution** — SSH, Docker, Kubernetes
-- **Web dashboard** — FastAPI REST API with interactive HTML dashboard
-- **Security scanning** — code analysis, secret detection, dependency vulnerability scanning
+- **Web API & dashboard** — FastAPI REST API with interactive HTML dashboard, script library, scheduler, and analytics
+- **Security scanning** — code analysis, secret detection, dependency vulnerability scanning, HashiCorp Vault / AWS Secrets Manager integration
 - **Task scheduler** — cron and interval-based scheduling with dependency chains
-- **Analytics API** — trends, anomalies, benchmarks, and data export (JSON/CSV)
-- **Cloud cost tracking** — resource usage cost estimation during execution
+- **Analytics API** — trends, anomalies, benchmarks, regression detection, and data export (JSON/CSV)
+- **Cloud cost tracking** — AWS/Azure/GCP resource usage cost estimation during execution
+- **OpenTelemetry tracing** — distributed tracing with Jaeger/Zipkin/OTLP exporters and sampling strategies
+- **Script templates** — pre-built scaffolding for ETL pipelines, API integrations, file processing, and data transformations
+- **Performance profiling** — overhead measurement, load testing, and benchmarking
 - **Dry-run mode** — validate and preview execution plan without running the script
 
 ---
@@ -146,6 +149,99 @@ Workflow: data_pipeline
 
 ---
 
+## Web API & Dashboard
+
+A full-featured FastAPI service lives in the `WEBAPI/` directory. Start it with:
+
+```bash
+cd WEBAPI
+uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+# or simply:
+bash serve.sh
+```
+
+Then open `http://localhost:8000` in your browser.
+
+### Dashboard
+
+**Runner Tab** — launch scripts, view real-time stats (total runs, last 24 h, success rate), inspect per-run logs, events, and visualization reports.
+
+![Dashboard – Launch Script & Recent Runs](https://github.com/user-attachments/assets/9c16d393-0fd9-4d49-a273-5bad4d01cba8)
+
+**Script Library Tab** — index folder roots, browse/search scripts by language/status/tag, preview file content, manage lifecycle (`active`, `draft`, `deprecated`, `archived`), and launch any script directly.
+
+![Library Tab – Folder Roots & Tags](https://github.com/user-attachments/assets/f131f6f0-ada6-40bd-9f91-9d85ab151ec6)
+
+![Script Browser](https://github.com/user-attachments/assets/d6b9dd3d-0553-4a19-ba5d-2490b83df27a)
+
+### Core API endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/health` | Liveness check — returns `{"status":"ok"}` |
+| `GET` | `/api/system/status` | CPU load averages and memory usage |
+| `GET` | `/api/stats` | Total / 24 h / by-status aggregates |
+| `GET` | `/` | Interactive HTML dashboard |
+
+### Run lifecycle
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/run` | Queue a script execution |
+| `POST` | `/api/run/upload` | Upload a `.py` file and queue execution |
+| `GET`  | `/api/runs` | List runs with pagination and status filter |
+| `GET`  | `/api/runs/{id}` | Full run record including correlation ID and error summary |
+| `POST` | `/api/runs/{id}/cancel` | Graceful cancellation |
+| `POST` | `/api/runs/{id}/stop` | Graceful stop via `runner.stop()` |
+| `POST` | `/api/runs/{id}/kill` | Force kill |
+| `POST` | `/api/runs/{id}/restart` | Cancel active run and requeue |
+| `GET`  | `/api/runs/{id}/logs` | Captured stdout/stderr |
+| `GET`  | `/api/runs/{id}/events` | Structured execution events |
+| `GET`  | `/api/runs/{id}/visualization` | Per-step timing report |
+| `DELETE` | `/api/runs/{id}` | Delete a run record |
+
+### Analytics
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/analytics/history` | Execution history (filter by script, days, limit) |
+| `GET` | `/api/analytics/history/stats` | Database statistics |
+| `GET` | `/api/analytics/trends` | Linear regression on a metric |
+| `GET` | `/api/analytics/anomalies` | Anomaly detection (`iqr` / `zscore` / `mad`) |
+| `GET` | `/api/analytics/baseline` | Performance baseline calculation |
+| `POST` | `/api/analytics/export` | Download metrics as JSON or CSV |
+| `GET` | `/api/analytics/benchmarks` | List benchmark snapshots |
+| `POST` | `/api/analytics/benchmarks` | Create a benchmark snapshot |
+| `GET` | `/api/analytics/benchmarks/{name}/regressions` | Detect regressions |
+| `DELETE` | `/api/analytics/cleanup` | Delete history older than N days |
+
+### Script Library
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/library/folder-roots` | List registered folder roots |
+| `POST` | `/api/library/folder-roots` | Register a folder root |
+| `POST` | `/api/library/folder-roots/{id}/scan` | Trigger background scan |
+| `GET` | `/api/library/scripts` | List/search scripts |
+| `GET` | `/api/library/scripts/{id}/content` | Raw file content |
+| `PUT` | `/api/library/scripts/{id}/status` | Update lifecycle status/owner/notes |
+| `GET` | `/api/library/tags` | List tags |
+| `POST` | `/api/library/tags` | Create a tag |
+| `GET` | `/api/library/duplicates` | Find duplicate scripts |
+| `GET` | `/api/library/stats` | Library aggregate statistics |
+
+### Scheduler
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/scheduler/tasks` | List all scheduled tasks |
+| `POST` | `/api/scheduler/tasks` | Create a scheduled task |
+| `DELETE` | `/api/scheduler/tasks/{id}` | Remove a task |
+| `POST` | `/api/scheduler/tasks/{id}/run` | Run a task immediately |
+| `GET` | `/api/scheduler/due` | List tasks currently due for execution |
+
+---
+
 ## CLI Reference
 
 ```
@@ -197,6 +293,20 @@ result = runner.run_script()
 ```
 
 All findings are surfaced in the execution result and, if alerts are configured, dispatched through the alert pipeline.
+
+### HashiCorp Vault & AWS Secrets Manager
+
+Integrate with secret vaults to retrieve credentials at runtime instead of hardcoding them:
+
+```python
+from runners.security.secret_scanner import SecretScanner
+
+# AWS Secrets Manager
+scanner = SecretScanner(vault_type='aws_secrets_manager')
+
+# HashiCorp Vault
+scanner = SecretScanner(vault_type='vault', vault_address='http://vault:8200')
+```
 
 ---
 
@@ -280,6 +390,109 @@ cicd.generate_junit_xml(result, "test-results.xml")
 
 ---
 
+## Cloud Cost Tracking
+
+Estimate AWS, Azure, and GCP resource costs incurred during script execution:
+
+```python
+from runners.integrations.cloud_cost_tracker import CloudCostTracker, CloudProvider
+
+tracker = CloudCostTracker(provider=CloudProvider.AWS, region="us-east-1")
+tracker.start_tracking()
+
+# ... run your script ...
+
+report = tracker.stop_tracking()
+print(f"Estimated cost: ${report.total_cost_usd:.4f}")
+print(f"Recommendations: {report.recommendations}")
+```
+
+Supports budget alerting and multi-cloud cost attribution tagging.
+
+---
+
+## OpenTelemetry Tracing
+
+Instrument script executions with distributed tracing for observability pipelines:
+
+```python
+from runners.tracers.otel_manager import TracingManager, TracingConfig, ExporterType
+
+config = TracingConfig(
+    service_name="my-pipeline",
+    exporter_type=ExporterType.JAEGER,
+    jaeger_host="localhost",
+    jaeger_port=6831,
+    sampling_rate=1.0,   # 100% sample rate
+)
+
+manager = TracingManager(config)
+manager.initialize()
+
+with manager.start_span("execute_etl") as span:
+    span.set_attribute("script.path", "etl.py")
+    # ... run script ...
+```
+
+Supports Jaeger, Zipkin, and OTLP exporters with configurable sampling strategies (`always_on`, `probability`, `tail_based`).
+
+---
+
+## Script Templates
+
+Bootstrap new scripts from built-in templates to follow best practices from the start:
+
+```python
+from runners.templates.template_manager import TemplateManager
+
+tm = TemplateManager()
+
+# List available templates
+for tpl in tm.list_templates():
+    print(f"{tpl.name} ({tpl.category}) — {tpl.description}")
+
+# Scaffold a new script from a template
+tm.create_from_template("etl_pipeline", output_dir="my_project/")
+```
+
+Built-in templates:
+
+| Template | Category | Description |
+|----------|----------|-------------|
+| `etl_pipeline` | ETL | Extract/Transform/Load pipeline with error handling and logging |
+| `api_integration` | API | REST API client with rate limiting and retry logic |
+| `file_processing` | Files | File batch processing with validation |
+| `data_transformation` | Data | Data transformation and aggregation patterns |
+
+---
+
+## Performance Profiling
+
+Measure the overhead of individual runner features and run load tests:
+
+```python
+from runners.profilers.performance_profiler import AdvancedProfiler, LoadTestRunner
+
+profiler = AdvancedProfiler()
+profiler.measure_baseline(duration_seconds=5)
+
+def my_feature():
+    # ... code to profile ...
+    pass
+
+metrics = profiler.profile_feature("my_feature", my_feature)
+print(f"Execution time: {metrics.execution_time_ms:.1f} ms")
+print(f"CPU overhead: {metrics.cpu_overhead_percent:.2f}%")
+print(f"Memory overhead: {metrics.memory_overhead_mb:.2f} MB")
+
+# Load test with concurrent workers
+runner = LoadTestRunner(max_workers=10)
+report = runner.run_load_test(my_feature, duration_seconds=30)
+print(f"Throughput: {report.requests_per_second:.1f} req/s")
+```
+
+---
+
 ## Installation
 
 ```bash
@@ -292,6 +505,13 @@ Or from source:
 git clone https://github.com/jomardyan/Python-Script-Runner
 cd Python-Script-Runner
 pip install -e .
+```
+
+### Development setup
+
+```bash
+pip install -r requirements-dev.txt
+pytest tests/unit/ -v
 ```
 
 ---
@@ -307,3 +527,4 @@ pip install -e .
 ## License
 
 MIT License - See LICENSE file for details
+
