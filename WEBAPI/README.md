@@ -1,8 +1,6 @@
 # WEBAPI
 
-A minimal FastAPI wrapper for `runner.py` that exposes HTTP endpoints and a
-small HTML dashboard. The service is intentionally lightweight so it can be
-deployed like a serverless function or small container.
+A FastAPI wrapper for `runner.py` that exposes HTTP endpoints and an interactive HTML dashboard. The service is intentionally lightweight so it can be deployed like a serverless function or small container.
 
 ## Dashboard
 
@@ -30,22 +28,30 @@ The Script Library tab (Script-Manager feature parity) lets you:
 
 ## Features
 
-### Existing endpoints
-- `POST /api/run` — queue a script execution (validated paths, env-var filtering)
-- `POST /api/run/upload` — upload a Python file and queue execution
-- `GET  /api/runs` — list runs with pagination and status filter
-- `GET  /api/runs/{id}` — full run record including correlation ID and error summary
-- `POST /api/runs/{id}/cancel` — graceful cancellation
-- `GET  /api/runs/{id}/logs` — captured stdout/stderr as plain text
-- `GET  /api/stats` — total/24 h/by-status aggregates
-- `GET  /api/system/status` — CPU load and memory usage
-- `GET  /` — interactive HTML dashboard
+### Core endpoints
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/health` | Liveness check — returns `{"status":"ok"}` |
+| `GET` | `/api/system/status` | CPU load averages and memory usage |
+| `GET` | `/api/stats` | Total / 24 h / by-status aggregates |
+| `GET` | `/` | Interactive HTML dashboard |
 
-### Run lifecycle endpoints (v1.3.0)
-- `POST /api/runs/{id}/stop` — graceful stop via `runner.stop()`
-- `POST /api/runs/{id}/kill` — force kill via `runner.kill()`
-- `POST /api/runs/{id}/restart` — cancel if active, queue fresh run (returns `202`)
-- `GET  /api/runs/{id}/events` — structured execution events from `StructuredLogger`
+### Run lifecycle endpoints
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/run` | Queue a script execution (validated paths, env-var filtering) |
+| `POST` | `/api/run/upload` | Upload a Python file and queue execution |
+| `GET`  | `/api/runs` | List runs with pagination and status filter |
+| `GET`  | `/api/runs/{id}` | Full run record including correlation ID and error summary |
+| `POST` | `/api/runs/{id}/cancel` | Graceful cancellation |
+| `GET`  | `/api/runs/{id}/logs` | Captured stdout/stderr as plain text |
+| `GET`  | `/api/runs/{id}/events` | Structured execution events from `StructuredLogger` |
+| `GET`  | `/api/runs/{id}/visualization` | Per-step timing report from `ExecutionVisualizer` |
+| `POST` | `/api/runs/{id}/stop` | Graceful stop via `runner.stop()` |
+| `POST` | `/api/runs/{id}/kill` | Force kill via `runner.kill()` |
+| `POST` | `/api/runs/{id}/restart` | Cancel if active, queue fresh run (returns `202`) |
+| `DELETE` | `/api/runs/{id}` | Delete a specific (completed) run record |
+| `DELETE` | `/api/runs` | Bulk delete run records (body: `["id1","id2",...]`) |
 
 ### Script Library endpoints (v1.4.0)
 
@@ -79,15 +85,71 @@ The Script Library tab (Script-Manager feature parity) lets you:
 | `GET` | `/api/library/duplicates` | Find duplicate scripts |
 | `GET` | `/api/library/stats` | Library aggregate statistics |
 
-### `RunRequest` fields (v1.3.0+)
+### Analytics endpoints (v1.5.0)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/analytics/history` | Execution history from `HistoryManager` (filter by `script_path`, `days`, `limit`) |
+| `GET` | `/api/analytics/history/stats` | Database statistics from `HistoryManager` |
+| `GET` | `/api/analytics/trends` | Linear regression trend for a metric (`metric`, `script_path`, `days`) |
+| `GET` | `/api/analytics/anomalies` | Anomaly detection on a metric (`method`: `iqr` / `zscore` / `mad`) |
+| `GET` | `/api/analytics/baseline` | Performance baseline calculation (`method`: `percentile` / `iqr` / `intelligent`) |
+| `POST` | `/api/analytics/export` | Download metrics as JSON or CSV file |
+| `GET` | `/api/analytics/benchmarks` | List benchmarks or versions of a specific benchmark |
+| `POST` | `/api/analytics/benchmarks` | Create a performance benchmark snapshot |
+| `GET` | `/api/analytics/benchmarks/{name}/regressions` | Detect regressions vs previous versions |
+| `DELETE` | `/api/analytics/cleanup` | Delete history records older than `days` (default: 90) |
+
+### Scheduler endpoints (v1.5.0)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/scheduler/tasks` | List all registered scheduled tasks |
+| `POST` | `/api/scheduler/tasks` | Register a new task (schedule or cron expression, optional dependencies) |
+| `DELETE` | `/api/scheduler/tasks/{task_id}` | Remove a scheduled task |
+| `POST` | `/api/scheduler/tasks/{task_id}/run` | Trigger a scheduled task immediately (returns `202`) |
+| `POST` | `/api/scheduler/events/{event_name}` | Fire a named event and return triggered task IDs |
+| `GET` | `/api/scheduler/due` | Return tasks currently due for execution |
+
+### `RunRequest` fields
 | Field | Type | Default | Description |
 |---|---|---|---|
+| `script_path` | `string` | — | Path to the Python script to execute |
+| `args` | `string[]` | `[]` | Arguments passed to the script |
+| `timeout` | `int \| null` | `null` | Timeout in seconds |
+| `log_level` | `string` | `"INFO"` | Logging level |
+| `retry_on_failure` | `bool` | `false` | Enable retry on failure |
+| `retry_max_attempts` | `int` | `3` | Maximum retry attempts |
+| `retry_strategy` | `string` | `"exponential"` | Backoff: `linear`, `exponential`, `fibonacci`, `exponential_jitter` |
+| `retry_initial_delay` | `float` | `1.0` | Initial retry delay (seconds) |
+| `retry_max_delay` | `float` | `60.0` | Maximum retry delay (seconds) |
+| `retry_multiplier` | `float` | `2.0` | Multiplier for exponential backoff |
+| `retry_max_time` | `float` | `300.0` | Maximum total retry time (seconds) |
 | `working_dir` | `string \| null` | `null` | Working directory for the subprocess |
 | `stream_output` | `bool` | `false` | Stream stdout/stderr in real time while capturing |
+| `monitor_interval` | `float` | `0.1` | Process monitor sampling interval (seconds) |
+| `enable_visualizer` | `bool` | `false` | Enable `ExecutionVisualizer` and store report |
+| `visualizer_format` | `string` | `"text"` | Visualizer output format: `text` or `json` |
+| `env_vars` | `object` | `{}` | Environment variables for the execution |
+| `history_db` | `string \| null` | `null` | Override the metrics history SQLite DB path |
+| `enable_history` | `bool` | `true` | Persist run metrics to the SQLite database |
+| `performance_gates` | `object[]` | `[]` | Gates list: `[{metric, max_value?, min_value?}]` |
+| `junit_output` | `string \| null` | `null` | Path to write JUnit XML output |
+| `save_baseline` | `string \| null` | `null` | Save current run metrics as baseline JSON |
+| `load_baseline` | `string \| null` | `null` | Load baseline JSON for comparison |
+| `alerts` | `object[]` | `[]` | Alert rules: `[{name, condition, channels, severity?}]` |
+| `slack_webhook` | `string \| null` | `null` | Slack webhook URL for alert notifications |
+| `dry_run` | `bool` | `false` | Validate and show execution plan without running |
+| `enable_code_analysis` | `bool` | `false` | Run static code analysis / security scan before execution |
+| `enable_secret_scanning` | `bool` | `false` | Scan script for hardcoded secrets before execution |
+| `enable_dependency_scanning` | `bool` | `false` | Scan requirements.txt for known vulnerabilities |
+| `enable_cost_tracking` | `bool` | `false` | Enable cloud cost tracking during execution |
 
-### `RunRecord` fields (v1.3.0+)
+### `RunRecord` fields
 | Field | Type | Description |
 |---|---|---|
+| `id` | `string` | Run UUID |
+| `status` | `string` | API-level status: `queued` / `running` / `completed` / `failed` / `cancelled` |
+| `started_at` | `datetime` | UTC start timestamp |
+| `finished_at` | `datetime \| null` | UTC finish timestamp |
 | `correlation_id` | `string \| null` | UUID4 from `ScriptRunner` |
 | `run_status` | `string \| null` | Runner's own status: `success` / `failed` / `timeout` / `killed` |
 | `error_summary` | `object \| null` | Structured dict with `exit_code`, `stderr_snippet`, `status`, `correlation_id` |

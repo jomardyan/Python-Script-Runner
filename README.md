@@ -2,7 +2,18 @@
 
 A production-grade Python script execution engine with comprehensive monitoring, alerting, analytics, and real-time visualization.
 
-[![PyPI Downloads](https://static.pepy.tech/personalized-badge/python-script-runner?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/python-script-runner)
+[![PyPI version](https://img.shields.io/pypi/v/python-script-runner?color=blue&logo=pypi&logoColor=white)](https://pypi.org/project/python-script-runner/)
+[![PyPI Downloads](https://static.pepy.tech/personalized-badge/python-script-runner?period=total&units=INTERNATIONAL_SYSTEM&left_color=black&right_color=brightgreen&left_text=downloads)](https://pepy.tech/projects/python-script-runner)
+[![PyPI - Downloads/Month](https://img.shields.io/pypi/dm/python-script-runner?color=brightgreen&logo=pypi&logoColor=white&label=downloads%2Fmonth)](https://pypi.org/project/python-script-runner/)
+[![Python Versions](https://img.shields.io/pypi/pyversions/python-script-runner?logo=python&logoColor=white)](https://pypi.org/project/python-script-runner/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![GitHub stars](https://img.shields.io/github/stars/jomardyan/Python-Script-Runner?style=social)](https://github.com/jomardyan/Python-Script-Runner/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/jomardyan/Python-Script-Runner?style=social)](https://github.com/jomardyan/Python-Script-Runner/network/members)
+[![GitHub issues](https://img.shields.io/github/issues/jomardyan/Python-Script-Runner?logo=github)](https://github.com/jomardyan/Python-Script-Runner/issues)
+[![GitHub last commit](https://img.shields.io/github/last-commit/jomardyan/Python-Script-Runner?logo=github)](https://github.com/jomardyan/Python-Script-Runner/commits)
+[![CI](https://img.shields.io/github/actions/workflow/status/jomardyan/Python-Script-Runner/tests.yml?branch=main&label=CI&logo=github-actions&logoColor=white)](https://github.com/jomardyan/Python-Script-Runner/actions)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/jomardyan/Python-Script-Runner/pulls)
 
 ---
 
@@ -12,11 +23,16 @@ A production-grade Python script execution engine with comprehensive monitoring,
 - **Real-time visualization** of the full execution pipeline
 - **DAG-based workflow orchestration** with parallel execution
 - **Metrics collection** — CPU, memory, I/O, timing per run
-- **Alert management** — rule-based triggers via Slack, email, webhooks
-- **History & trend analysis** — SQLite persistence with anomaly detection
-- **CI/CD integration** — JUnit XML, TAP output, performance gates
+- **Alert management** — rule-based triggers via Slack, email, webhooks with deduplication
+- **History & trend analysis** — SQLite persistence with anomaly detection (IQR, Z-score, MAD)
+- **CI/CD integration** — JUnit XML, TAP output, performance gates, baseline comparison
 - **Remote execution** — SSH, Docker, Kubernetes
-- **Web dashboard** — FastAPI backend with WebSocket live updates
+- **Web dashboard** — FastAPI REST API with interactive HTML dashboard
+- **Security scanning** — code analysis, secret detection, dependency vulnerability scanning
+- **Task scheduler** — cron and interval-based scheduling with dependency chains
+- **Analytics API** — trends, anomalies, benchmarks, and data export (JSON/CSV)
+- **Cloud cost tracking** — resource usage cost estimation during execution
+- **Dry-run mode** — validate and preview execution plan without running the script
 
 ---
 
@@ -136,10 +152,12 @@ Workflow: data_pipeline
 usage: runner.py [-h] [--timeout TIMEOUT] [--visualize]
                  [--visualize-format {text,json}]
                  [--visualize-output FILE]
-                 [--retry N] [--retry-strategy {linear,exponential,fibonacci}]
+                 [--retry N] [--retry-strategy {linear,exponential,fibonacci,exponential_jitter}]
                  [--monitor-interval SECONDS]
                  [--show-history] [--analyze-trend]
-                 [--dashboard] ...
+                 [--dashboard] [--dry-run]
+                 [--enable-code-analysis] [--enable-secret-scanning]
+                 [--enable-dependency-scanning]
                  script [script_args ...]
 ```
 
@@ -157,6 +175,108 @@ Key flags:
 | `--show-history` | Print recent execution history |
 | `--analyze-trend` | Run trend analysis on metric history |
 | `--dashboard` | Start the web dashboard |
+| `--dry-run` | Validate and show execution plan without running the script |
+| `--enable-code-analysis` | Run static code analysis before execution |
+| `--enable-secret-scanning` | Scan script for hardcoded secrets before execution |
+| `--enable-dependency-scanning` | Scan requirements.txt for known vulnerabilities |
+
+---
+
+## Security Scanning
+
+Pre-execution security checks protect against common risks before a script ever runs:
+
+```python
+from runner import ScriptRunner
+
+runner = ScriptRunner("my_script.py")
+runner.enable_code_analysis = True       # Static analysis / linting
+runner.enable_secret_scanning = True     # Detect hardcoded credentials
+runner.enable_dependency_scanning = True # Audit requirements.txt for CVEs
+result = runner.run_script()
+```
+
+All findings are surfaced in the execution result and, if alerts are configured, dispatched through the alert pipeline.
+
+---
+
+## Task Scheduler
+
+Schedule scripts with cron expressions or plain-English intervals. Tasks can declare dependencies on other tasks to form execution chains:
+
+```python
+from runner import TaskScheduler
+
+scheduler = TaskScheduler()
+
+# Interval-based
+scheduler.add_scheduled_task(
+    task_id="refresh_data",
+    script_path="fetch.py",
+    schedule="every 5 minutes",
+)
+
+# Cron-based with dependency
+scheduler.add_scheduled_task(
+    task_id="daily_report",
+    script_path="report.py",
+    cron_expr="0 8 * * *",          # 08:00 every day
+    dependencies=["refresh_data"],  # wait for refresh_data to complete first
+)
+
+# Run all tasks that are currently due
+for task in scheduler.get_due_tasks():
+    task.run()
+```
+
+---
+
+## Analytics & Benchmarks
+
+Query historical execution data, detect regressions, and export metrics:
+
+```python
+from runner import HistoryManager, TrendAnalyzer, BenchmarkManager
+
+hm = HistoryManager()
+
+# Trend analysis on execution time over the last 30 days
+history = hm.get_execution_history(script_path="etl.py", days=30)
+values  = [e["metrics"]["execution_time_seconds"] for e in history]
+
+ta     = TrendAnalyzer()
+trend  = ta.calculate_linear_regression(values)
+anomalies = ta.detect_anomalies(values, method="iqr")   # or "zscore", "mad"
+
+# Performance benchmarks & regression detection
+bm = BenchmarkManager()
+bm.create_benchmark("nightly_etl", script_path="etl.py")
+regressions = bm.detect_regressions("nightly_etl", regression_threshold=10.0)
+
+# Export to CSV or JSON
+from runner import DataExporter
+exporter = DataExporter(hm)
+exporter.export_to_csv("metrics.csv", script_path="etl.py")
+```
+
+---
+
+## Performance Gates & Baseline
+
+Fail CI runs automatically when a metric exceeds a threshold:
+
+```python
+from runner import ScriptRunner, CICDIntegration, PerformanceGate
+
+runner = ScriptRunner("pipeline.py")
+result = runner.run_script()
+
+cicd = CICDIntegration(runner)
+cicd.add_performance_gate(PerformanceGate(metric="cpu_max",       max_value=85.0))
+cicd.add_performance_gate(PerformanceGate(metric="memory_max_mb", max_value=512.0))
+gate_result = cicd.check_performance_gates(result)
+cicd.generate_junit_xml(result, "test-results.xml")
+```
 
 ---
 
