@@ -106,6 +106,20 @@ class RunRecord(BaseModel):
     error_summary: Optional[Dict[str, Any]] = None
 
 
+def _model_to_json(model: BaseModel) -> str:
+    """Serialize a pydantic model to JSON, supporting both v1 and v2."""
+    if hasattr(model, "model_dump_json"):  # pydantic v2
+        return model.model_dump_json()
+    return model.json()  # pydantic v1
+
+
+def _model_from_json(model_cls, raw: str):
+    """Deserialize JSON into a pydantic model, supporting both v1 and v2."""
+    if hasattr(model_cls, "model_validate_json"):  # pydantic v2
+        return model_cls.model_validate_json(raw)
+    return model_cls.parse_raw(raw)  # pydantic v1
+
+
 RUN_DB_PATH = Path(os.environ.get("WEBAPI_RUN_DB", PROJECT_ROOT / "WEBAPI" / "runs.db"))
 ALLOWED_SCRIPT_ROOT = Path(os.environ.get("WEBAPI_ALLOWED_ROOT", PROJECT_ROOT)).resolve()
 UPLOAD_DIR = PROJECT_ROOT / "WEBAPI" / "uploads"
@@ -199,7 +213,7 @@ class RunStore:
                     "status": record.status,
                     "started_at": record.started_at.isoformat(),
                     "finished_at": record.finished_at.isoformat() if record.finished_at else None,
-                    "request_json": record.request.json(),
+                    "request_json": _model_to_json(record.request),
                     "result_json": json.dumps(record.result) if record.result is not None else None,
                     "error": record.error,
                     "stdout": record.result.get("stdout") if record.result else None,
@@ -246,7 +260,7 @@ class RunStore:
             status=row["status"],
             started_at=datetime.fromisoformat(row["started_at"]),
             finished_at=datetime.fromisoformat(row["finished_at"]) if row["finished_at"] else None,
-            request=RunRequest.parse_raw(row["request_json"]),
+            request=_model_from_json(RunRequest, row["request_json"]),
             result=json.loads(row["result_json"]) if row["result_json"] else None,
             error=row["error"],
             correlation_id=row["correlation_id"] if "correlation_id" in keys else None,
@@ -1245,13 +1259,15 @@ def trigger_run_upload(
     stream_output: bool = Form(False),
 ) -> Dict[str, str]:
     """Upload a script and queue execution."""
-    if not file.filename.endswith(('.py', '.pyw')):
+    if not file.filename or not file.filename.endswith(('.py', '.pyw')):
         raise HTTPException(status_code=400, detail="Only Python files are allowed")
 
     # Ensure upload directory exists
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-    safe_filename = f"{uuid.uuid4().hex}_{file.filename}"
+    # Strip any directory components from the client-supplied name to avoid
+    # path traversal; the uuid prefix keeps uploads unique.
+    safe_filename = f"{uuid.uuid4().hex}_{Path(file.filename).name}"
     file_path = UPLOAD_DIR / safe_filename
 
     with open(file_path, "wb") as buffer:

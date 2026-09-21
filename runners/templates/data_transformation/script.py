@@ -15,6 +15,11 @@ import logging
 import json
 from typing import Dict, Any
 
+try:
+    import pandas as pd
+except ImportError:  # pragma: no cover - pandas is an optional runtime dependency
+    pd = None
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -39,8 +44,10 @@ class DataTransformer:
     def load_data(self) -> bool:
         """Load data from file."""
         try:
-            import pandas as pd
-            
+            if pd is None:
+                logger.error("pandas is required for data transformation. Install: pip install pandas")
+                return False
+
             logger.info(f"Loading data from {self.input_file}")
             
             if self.input_file.endswith('.csv'):

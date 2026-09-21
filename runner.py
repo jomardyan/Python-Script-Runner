@@ -579,11 +579,13 @@ class HistoryManager:
                 
                 deleted = cursor.rowcount
                 conn.commit()
-                
+
                 self.logger.info(f"Cleaned up {deleted} old execution records (older than {days} days)")
-                
+                return deleted
+
         except Exception as e:
             self.logger.error(f"Failed to cleanup old data: {e}")
+            return 0
 
     def get_database_stats(self) -> Dict:
         """Get statistics about the database using connection pool"""
@@ -1600,7 +1602,7 @@ class TimeSeriesDB:
             cursor = conn.cursor()
             
             query = """
-                SELECT m.timestamp, m.metric_name, m.value, e.script_path, e.exit_code
+                SELECT e.start_time, m.metric_name, m.metric_value, e.script_path, e.exit_code
                 FROM metrics m
                 JOIN executions e ON m.execution_id = e.id
                 WHERE 1=1
@@ -1616,14 +1618,14 @@ class TimeSeriesDB:
                 params.append(script_path)
             
             if start_date:
-                query += " AND m.timestamp >= ?"
+                query += " AND e.start_time >= ?"
                 params.append(start_date)
             
             if end_date:
-                query += " AND m.timestamp <= ?"
+                query += " AND e.start_time <= ?"
                 params.append(end_date)
             
-            query += " ORDER BY m.timestamp DESC LIMIT ? OFFSET ?"
+            query += " ORDER BY e.start_time DESC LIMIT ? OFFSET ?"
             params.extend([limit, offset])
             
             cursor.execute(query, params)
@@ -1659,11 +1661,11 @@ class TimeSeriesDB:
             Aggregated value or None if no data
         """
         method_map = {
-            'avg': 'AVG(m.value)',
-            'min': 'MIN(m.value)',
-            'max': 'MAX(m.value)',
-            'sum': 'SUM(m.value)',
-            'count': 'COUNT(m.value)',
+            'avg': 'AVG(m.metric_value)',
+            'min': 'MIN(m.metric_value)',
+            'max': 'MAX(m.metric_value)',
+            'sum': 'SUM(m.metric_value)',
+            'count': 'COUNT(m.metric_value)',
             'median': None  # Special handling
         }
         
@@ -1691,11 +1693,11 @@ class TimeSeriesDB:
                 params.append(script_path)
             
             if start_date:
-                query += " AND m.timestamp >= ?"
+                query += " AND e.start_time >= ?"
                 params.append(start_date)
             
             if end_date:
-                query += " AND m.timestamp <= ?"
+                query += " AND e.start_time <= ?"
                 params.append(end_date)
             
             cursor.execute(query, params)
@@ -1725,7 +1727,7 @@ class TimeSeriesDB:
             cursor = conn.cursor()
             
             query = """
-                SELECT m.value
+                SELECT m.metric_value
                 FROM metrics m
                 JOIN executions e ON m.execution_id = e.id
                 WHERE m.metric_name = ?
@@ -1737,11 +1739,11 @@ class TimeSeriesDB:
                 params.append(script_path)
             
             if start_date:
-                query += " AND m.timestamp >= ?"
+                query += " AND e.start_time >= ?"
                 params.append(start_date)
             
             if end_date:
-                query += " AND m.timestamp <= ?"
+                query += " AND e.start_time <= ?"
                 params.append(end_date)
             
             cursor.execute(query, params)
@@ -1785,7 +1787,7 @@ class TimeSeriesDB:
             cursor = conn.cursor()
             
             query = """
-                SELECT m.value
+                SELECT m.metric_value
                 FROM metrics m
                 JOIN executions e ON m.execution_id = e.id
                 WHERE m.metric_name = ?
@@ -1797,14 +1799,14 @@ class TimeSeriesDB:
                 params.append(script_path)
             
             if start_date:
-                query += " AND m.timestamp >= ?"
+                query += " AND e.start_time >= ?"
                 params.append(start_date)
             
             if end_date:
-                query += " AND m.timestamp <= ?"
+                query += " AND e.start_time <= ?"
                 params.append(end_date)
             
-            query += " ORDER BY m.value"
+            query += " ORDER BY m.metric_value"
             
             cursor.execute(query, params)
             values = [row[0] for row in cursor.fetchall()]
@@ -1836,10 +1838,10 @@ class TimeSeriesDB:
             Dictionary mapping bucket timestamps to average values
         """
         bucket_map = {
-            '5min': "strftime('%Y-%m-%d %H:%M:00', m.timestamp)",
-            '15min': "strftime('%Y-%m-%d %H:%M:00', m.timestamp)",
-            '1hour': "strftime('%Y-%m-%d %H:00:00', m.timestamp)",
-            '1day': "strftime('%Y-%m-%d', m.timestamp)"
+            '5min': "strftime('%Y-%m-%d %H:%M:00', e.start_time)",
+            '15min': "strftime('%Y-%m-%d %H:%M:00', e.start_time)",
+            '1hour': "strftime('%Y-%m-%d %H:00:00', e.start_time)",
+            '1day': "strftime('%Y-%m-%d', e.start_time)"
         }
         
         if bucket_size not in bucket_map:
@@ -1852,7 +1854,7 @@ class TimeSeriesDB:
             
             bucket_expr = bucket_map[bucket_size]
             query = f"""
-                SELECT {bucket_expr} as bucket, AVG(m.value) as avg_value
+                SELECT {bucket_expr} as bucket, AVG(m.metric_value) as avg_value
                 FROM metrics m
                 JOIN executions e ON m.execution_id = e.id
                 WHERE m.metric_name = ?
@@ -1864,11 +1866,11 @@ class TimeSeriesDB:
                 params.append(script_path)
             
             if start_date:
-                query += " AND m.timestamp >= ?"
+                query += " AND e.start_time >= ?"
                 params.append(start_date)
             
             if end_date:
-                query += " AND m.timestamp <= ?"
+                query += " AND e.start_time <= ?"
                 params.append(end_date)
             
             query += " GROUP BY bucket ORDER BY bucket"
@@ -1913,11 +1915,11 @@ class TimeSeriesDB:
                 params.append(script_path)
             
             if start_date:
-                query += " AND m.timestamp >= ?"
+                query += " AND e.start_time >= ?"
                 params.append(start_date)
             
             if end_date:
-                query += " AND m.timestamp <= ?"
+                query += " AND e.start_time <= ?"
                 params.append(end_date)
             
             query += " ORDER BY m.metric_name"
@@ -2342,12 +2344,13 @@ class ScriptWorkflow:
         
         total_time_by_script = sum(n.execution_time for n in self.scripts.values())
         successful = sum(1 for n in self.scripts.values() if n.status == "completed")
-        
+        failed = sum(1 for n in self.scripts.values() if n.status == "failed")
+
         return {
             "workflow_name": self.name,
             "total_scripts": len(self.scripts),
             "successful_scripts": successful,
-            "failed_scripts": len(self.scripts) - successful,
+            "failed_scripts": failed,
             "total_execution_time": self.total_time,
             "total_script_time": total_time_by_script,
             "overhead_time": self.total_time - total_time_by_script,
@@ -2395,7 +2398,7 @@ class DataExporter:
             cursor = conn.cursor()
             
             query = """
-                SELECT m.timestamp, m.metric_name, m.value, e.script_path, e.exit_code
+                SELECT e.start_time, m.metric_name, m.metric_value, e.script_path, e.exit_code
                 FROM metrics m
                 JOIN executions e ON m.execution_id = e.id
                 WHERE 1=1
@@ -2411,14 +2414,14 @@ class DataExporter:
                 params.append(metric_name)
             
             if start_date:
-                query += " AND m.timestamp >= ?"
+                query += " AND e.start_time >= ?"
                 params.append(start_date)
             
             if end_date:
-                query += " AND m.timestamp <= ?"
+                query += " AND e.start_time <= ?"
                 params.append(end_date)
             
-            query += " ORDER BY m.timestamp DESC"
+            query += " ORDER BY e.start_time DESC"
             
             cursor.execute(query, params)
             rows = cursor.fetchall()
@@ -2456,7 +2459,7 @@ class DataExporter:
             cursor = conn.cursor()
             
             query = """
-                SELECT m.timestamp, m.metric_name, m.value, e.script_path, e.exit_code
+                SELECT e.start_time, m.metric_name, m.metric_value, e.script_path, e.exit_code
                 FROM metrics m
                 JOIN executions e ON m.execution_id = e.id
                 WHERE 1=1
@@ -2472,14 +2475,14 @@ class DataExporter:
                 params.append(metric_name)
             
             if start_date:
-                query += " AND m.timestamp >= ?"
+                query += " AND e.start_time >= ?"
                 params.append(start_date)
             
             if end_date:
-                query += " AND m.timestamp <= ?"
+                query += " AND e.start_time <= ?"
                 params.append(end_date)
             
-            query += " ORDER BY m.timestamp DESC"
+            query += " ORDER BY e.start_time DESC"
             
             cursor.execute(query, params)
             
@@ -2529,7 +2532,7 @@ class DataExporter:
             cursor = conn.cursor()
             
             query = """
-                SELECT m.timestamp, m.metric_name, m.value, e.script_path, e.exit_code
+                SELECT e.start_time, m.metric_name, m.metric_value, e.script_path, e.exit_code
                 FROM metrics m
                 JOIN executions e ON m.execution_id = e.id
                 WHERE 1=1
@@ -3564,14 +3567,15 @@ class MLAnomalyDetector:
 class MetricsCorrelationAnalyzer:
     """Analyzes correlations between different metrics to identify relationships and dependencies."""
     
-    def __init__(self, logger: Optional[logging.Logger] = None):
+    def __init__(self, logger: Optional[logging.Logger] = None, db_path: Optional[str] = None):
         """Initialize metrics correlation analyzer
-        
+
         Args:
             logger: Logger instance
+            db_path: Path to the history database that holds metrics
         """
         self.logger = logger or logging.getLogger(__name__)
-        self.db_path = "metrics.db"
+        self.db_path = db_path or "script_runner_history.db"
     
     def _pearson_correlation(self, x_values: List[float], y_values: List[float]) -> float:
         """Calculate Pearson correlation coefficient between two metric series
@@ -3585,27 +3589,32 @@ class MetricsCorrelationAnalyzer:
         """
         if len(x_values) < 2 or len(y_values) < 2 or len(x_values) != len(y_values):
             return 0
-        
-        x_values = [v for v in x_values if v is not None]
-        y_values = [v for v in y_values if v is not None]
-        
-        if len(x_values) < 2:
+
+        # Drop pairs where either value is missing so the two series stay aligned.
+        pairs = [(x, y) for x, y in zip(x_values, y_values)
+                 if x is not None and y is not None]
+        if len(pairs) < 2:
             return 0
-        
+        x_values = [p[0] for p in pairs]
+        y_values = [p[1] for p in pairs]
+
         import statistics
         x_mean = statistics.mean(x_values)
         y_mean = statistics.mean(y_values)
-        
-        numerator = sum((x_values[i] - x_mean) * (y_values[i] - y_mean) 
+
+        numerator = sum((x_values[i] - x_mean) * (y_values[i] - y_mean)
                        for i in range(len(x_values)))
-        
+
         x_stdev = statistics.stdev(x_values) if len(x_values) > 1 else 0
         y_stdev = statistics.stdev(y_values) if len(y_values) > 1 else 0
-        
+
         if x_stdev == 0 or y_stdev == 0:
             return 0
-        
-        denominator = x_stdev * y_stdev * len(x_values)
+
+        # statistics.stdev uses the sample standard deviation (divides by n-1),
+        # so the matching normalizer for the raw sum-of-products numerator is
+        # (n-1) * x_stdev * y_stdev.
+        denominator = x_stdev * y_stdev * (len(x_values) - 1)
         return numerator / denominator if denominator != 0 else 0
     
     def analyze_metric_correlations(self, days: int = 30, threshold: float = 0.5) -> Dict:
@@ -3626,8 +3635,9 @@ class MetricsCorrelationAnalyzer:
             
             # Get all metric names
             c.execute("""
-                SELECT DISTINCT metric_name FROM metrics 
-                WHERE timestamp > ?
+                SELECT DISTINCT metric_name FROM metrics m
+                    JOIN executions e ON m.execution_id = e.id
+                WHERE e.start_time > ?
                 ORDER BY metric_name
             """, (cutoff_date.isoformat(),))
             
@@ -3641,9 +3651,10 @@ class MetricsCorrelationAnalyzer:
             metric_data = {}
             for metric_name in metric_names:
                 c.execute("""
-                    SELECT metric_value FROM metrics 
-                    WHERE metric_name = ? AND timestamp > ?
-                    ORDER BY timestamp
+                    SELECT metric_value FROM metrics m
+                    JOIN executions e ON m.execution_id = e.id
+                    WHERE metric_name = ? AND e.start_time > ?
+                    ORDER BY e.start_time
                 """, (metric_name, cutoff_date.isoformat()))
                 metric_data[metric_name] = [row[0] for row in c.fetchall()]
             
@@ -3715,9 +3726,10 @@ class MetricsCorrelationAnalyzer:
             
             # Get target metric data
             c.execute("""
-                SELECT metric_value FROM metrics 
-                WHERE metric_name = ? AND timestamp > ?
-                ORDER BY timestamp
+                SELECT metric_value FROM metrics m
+                    JOIN executions e ON m.execution_id = e.id
+                WHERE metric_name = ? AND e.start_time > ?
+                ORDER BY e.start_time
             """, (target_metric, cutoff_date.isoformat()))
             
             target_values = [row[0] for row in c.fetchall()]
@@ -3728,8 +3740,9 @@ class MetricsCorrelationAnalyzer:
             
             # Get all other metrics
             c.execute("""
-                SELECT DISTINCT metric_name FROM metrics 
-                WHERE metric_name != ? AND timestamp > ?
+                SELECT DISTINCT metric_name FROM metrics m
+                    JOIN executions e ON m.execution_id = e.id
+                WHERE metric_name != ? AND e.start_time > ?
                 ORDER BY metric_name
             """, (target_metric, cutoff_date.isoformat()))
             
@@ -3738,9 +3751,10 @@ class MetricsCorrelationAnalyzer:
             predictors = []
             for metric_name in other_metrics:
                 c.execute("""
-                    SELECT metric_value FROM metrics 
-                    WHERE metric_name = ? AND timestamp > ?
-                    ORDER BY timestamp
+                    SELECT metric_value FROM metrics m
+                    JOIN executions e ON m.execution_id = e.id
+                    WHERE metric_name = ? AND e.start_time > ?
+                    ORDER BY e.start_time
                 """, (metric_name, cutoff_date.isoformat()))
                 
                 values = [row[0] for row in c.fetchall()]
@@ -3796,8 +3810,9 @@ class MetricsCorrelationAnalyzer:
             
             # Get all metrics
             c.execute("""
-                SELECT DISTINCT metric_name FROM metrics 
-                WHERE timestamp > ?
+                SELECT DISTINCT metric_name FROM metrics m
+                    JOIN executions e ON m.execution_id = e.id
+                WHERE e.start_time > ?
                 ORDER BY metric_name
             """, (cutoff_date.isoformat(),))
             
@@ -3811,9 +3826,10 @@ class MetricsCorrelationAnalyzer:
             metric_data = {}
             for metric_name in metric_names:
                 c.execute("""
-                    SELECT metric_value FROM metrics 
-                    WHERE metric_name = ? AND timestamp > ?
-                    ORDER BY timestamp
+                    SELECT metric_value FROM metrics m
+                    JOIN executions e ON m.execution_id = e.id
+                    WHERE metric_name = ? AND e.start_time > ?
+                    ORDER BY e.start_time
                 """, (metric_name, cutoff_date.isoformat()))
                 metric_data[metric_name] = [row[0] for row in c.fetchall()]
             
@@ -3834,7 +3850,7 @@ class MetricsCorrelationAnalyzer:
                     best_lag = 0
                     best_corr = 0
                     
-                    for lag in range(1, min(lag_window, len(data1) - 1)):
+                    for lag in range(1, min(lag_window, len(data1) - 1) + 1):
                         # Shift data1 forward by lag
                         x = data1[:len(data1) - lag]
                         y = data2[lag:]
@@ -3878,14 +3894,15 @@ class MetricsCorrelationAnalyzer:
 class BenchmarkManager:
     """Manage performance benchmarks and detect regressions between versions."""
     
-    def __init__(self, logger: Optional[logging.Logger] = None):
+    def __init__(self, logger: Optional[logging.Logger] = None, db_path: Optional[str] = None):
         """Initialize benchmark manager
-        
+
         Args:
             logger: Logger instance
+            db_path: Path to the history database that holds metrics
         """
         self.logger = logger or logging.getLogger(__name__)
-        self.db_path = "metrics.db"
+        self.db_path = db_path or "script_runner_history.db"
         self.benchmark_db = "benchmarks.db"
         self._init_benchmark_db()
     
@@ -3958,25 +3975,28 @@ class BenchmarkManager:
             
             # Get CPU metrics
             c.execute("""
-                SELECT metric_value FROM metrics 
+                SELECT metric_value FROM metrics m
+                    JOIN executions e ON m.execution_id = e.id
                 WHERE metric_name = 'cpu_percent'
-                ORDER BY timestamp DESC LIMIT 100
+                ORDER BY e.start_time DESC LIMIT 100
             """)
             cpu_values = [row[0] for row in c.fetchall()]
             
             # Get memory metrics
             c.execute("""
-                SELECT metric_value FROM metrics 
+                SELECT metric_value FROM metrics m
+                    JOIN executions e ON m.execution_id = e.id
                 WHERE metric_name = 'memory_mb'
-                ORDER BY timestamp DESC LIMIT 100
+                ORDER BY e.start_time DESC LIMIT 100
             """)
             memory_values = [row[0] for row in c.fetchall()]
             
             # Get execution time metrics
             c.execute("""
-                SELECT metric_value FROM metrics 
+                SELECT metric_value FROM metrics m
+                    JOIN executions e ON m.execution_id = e.id
                 WHERE metric_name = 'execution_time_seconds'
-                ORDER BY timestamp DESC LIMIT 100
+                ORDER BY e.start_time DESC LIMIT 100
             """)
             exec_time_values = [row[0] for row in c.fetchall()]
             
@@ -4603,10 +4623,12 @@ class AdvancedProfiler:
             memory_samples = []
             start_time = time.time()
             
-            # Start process
-            process = subprocess.Popen(['python', script_path], 
-                                     stdout=subprocess.PIPE, 
-                                     stderr=subprocess.PIPE)
+            # Start process. Output is not consumed here, so discard it to
+            # /dev/null; piping without draining would deadlock the child once
+            # it fills the OS pipe buffer (~64KB).
+            process = subprocess.Popen(['python', script_path],
+                                     stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.DEVNULL)
             
             try:
                 while (time.time() - start_time) < duration_seconds:
@@ -4634,8 +4656,12 @@ class AdvancedProfiler:
                         break
             finally:
                 process.terminate()
-                process.wait()
-            
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+
             # Analyze samples
             if cpu_samples:
                 cpu_values = [s['cpu'] for s in cpu_samples]
@@ -4852,12 +4878,14 @@ class EnterpriseIntegrations:
             import requests
             
             # Format: metric_name{job="script_runner"} value
-            metric_line = f'script_runner_{metric_name}{{job="script_runner"}} {value}'
-            
+            # The Pushgateway requires the exposition body to end with a newline.
+            metric_line = f'script_runner_{metric_name}{{job="script_runner"}} {value}\n'
+
             url = f"{pushgateway_url}/metrics/job/script_runner"
             response = requests.post(url, data=metric_line, timeout=10)
-            
-            if response.status_code == 202:
+
+            # The Pushgateway returns 200 on success (202 on older versions).
+            if response.status_code in (200, 202):
                 self.logger.info(f"Sent to Prometheus: {metric_name}={value}")
                 return {"status": "success", "platform": "prometheus"}
             else:
@@ -4934,14 +4962,15 @@ class EnterpriseIntegrations:
 class ResourceForecaster:
     """Predict future resource needs and forecast SLA compliance."""
     
-    def __init__(self, logger: Optional[logging.Logger] = None):
+    def __init__(self, logger: Optional[logging.Logger] = None, db_path: Optional[str] = None):
         """Initialize resource forecaster
-        
+
         Args:
             logger: Logger instance
+            db_path: Path to the history database that holds metrics
         """
         self.logger = logger or logging.getLogger(__name__)
-        self.db_path = "metrics.db"
+        self.db_path = db_path or "script_runner_history.db"
     
     def forecast_metric(self, metric_name: str, days_ahead: int = 7,
                        method: str = "linear") -> Dict:
@@ -4958,18 +4987,21 @@ class ResourceForecaster:
         try:
             # Get historical data
             conn = sqlite3.connect(self.db_path)
-            c = conn.cursor()
-            
-            cutoff = datetime.now() - timedelta(days=90)
-            c.execute("""
-                SELECT timestamp, metric_value FROM metrics 
-                WHERE metric_name = ? AND timestamp > ?
-                ORDER BY timestamp
-            """, (metric_name, cutoff.isoformat()))
-            
-            data = c.fetchall()
-            conn.close()
-            
+            try:
+                c = conn.cursor()
+
+                cutoff = datetime.now() - timedelta(days=90)
+                c.execute("""
+                    SELECT e.start_time, metric_value FROM metrics m
+                        JOIN executions e ON m.execution_id = e.id
+                    WHERE metric_name = ? AND e.start_time > ?
+                    ORDER BY e.start_time
+                """, (metric_name, cutoff.isoformat()))
+
+                data = c.fetchall()
+            finally:
+                conn.close()
+
             if len(data) < 10:
                 return {"status": "insufficient_data", "min_required": 10, "available": len(data)}
             
@@ -4994,17 +5026,16 @@ class ResourceForecaster:
                     forecast.append({"days_ahead": d, "predicted_value": round(predicted, 2)})
             
             elif method == "exponential":
-                # Exponential smoothing
+                # Simple exponential smoothing: smooth the historical series to
+                # obtain the current level, then project it forward. The forecast
+                # of simple exponential smoothing is a flat line at that level.
                 alpha = 0.3
-                forecast = [values[-1]]
-                
-                for _ in range(days_ahead):
-                    next_val = alpha * values[-1] + (1 - alpha) * forecast[-1]
-                    forecast.append(next_val)
-                    values.append(next_val)
-                
-                forecast = [{"days_ahead": d + 1, "predicted_value": round(forecast[d + 1], 2)} 
-                           for d in range(days_ahead)]
+                level = values[0]
+                for v in values[1:]:
+                    level = alpha * v + (1 - alpha) * level
+
+                forecast = [{"days_ahead": d, "predicted_value": round(level, 2)}
+                           for d in range(1, days_ahead + 1)]
             
             else:  # seasonal
                 # Simple seasonal pattern (weekly)
@@ -5090,7 +5121,8 @@ class ResourceForecaster:
             c = conn.cursor()
             
             c.execute("""
-                SELECT AVG(metric_value) FROM metrics 
+                SELECT AVG(metric_value) FROM metrics m
+                    JOIN executions e ON m.execution_id = e.id
                 WHERE metric_name = ?
             """, (metric_name,))
             
@@ -5372,7 +5404,10 @@ class RemoteExecutor:
             safe_env_vars = {}
             if env_vars:
                 for key, value in env_vars.items():
-                    if not key.isalnum() and key.replace('_', '').isalnum():
+                    # Accept keys that are alphanumeric once underscores are
+                    # removed (e.g. PATH, MY_VAR); reject anything with
+                    # shell-significant characters.
+                    if key and key.replace('_', '').isalnum():
                         safe_env_vars[key] = str(value)
             
             # Run container
@@ -7874,7 +7909,8 @@ class ScriptRunner:
                     'user_time_seconds': usage.ru_utime,
                     'system_time_seconds': usage.ru_stime,
                     'max_memory_kb': usage.ru_maxrss,
-                    'max_memory_mb': usage.ru_maxrss / 1024 if sys.platform == 'linux' else usage.ru_maxrss / 1024,
+                    # ru_maxrss is in kilobytes on Linux but in bytes on macOS.
+                    'max_memory_mb': usage.ru_maxrss / 1024 if sys.platform == 'linux' else usage.ru_maxrss / 1024 / 1024,
                     'page_faults_minor': usage.ru_minflt,
                     'page_faults_major': usage.ru_majflt,
                     'block_input_ops': usage.ru_inblock,
@@ -9279,7 +9315,7 @@ Examples:
         
         # Handle metrics correlation analysis (Phase 3 Feature #5)
         if args.analyze_correlations or args.find_predictors or args.detect_dependencies:
-            correlator = MetricsCorrelationAnalyzer()
+            correlator = MetricsCorrelationAnalyzer(db_path=args.history_db or 'script_runner_history.db')
             
             if args.analyze_correlations:
                 print(f"\n{'='*80}")
@@ -9361,7 +9397,7 @@ Examples:
         
         # Handle performance benchmarking (Phase 3 Feature #6)
         if args.create_benchmark or args.compare_benchmarks or args.detect_regressions or args.list_benchmarks:
-            benchmark_mgr = BenchmarkManager()
+            benchmark_mgr = BenchmarkManager(db_path=args.history_db or 'script_runner_history.db')
             
             if args.create_benchmark:
                 print(f"\n{'='*80}")
@@ -9476,12 +9512,13 @@ Examples:
                 
                 # Get metric history
                 try:
-                    conn = sqlite3.connect("metrics.db")
+                    conn = sqlite3.connect(args.history_db or 'script_runner_history.db')
                     c = conn.cursor()
                     c.execute("""
-                        SELECT metric_value FROM metrics 
+                        SELECT metric_value FROM metrics m
+                    JOIN executions e ON m.execution_id = e.id
                         WHERE metric_name = ? 
-                        ORDER BY timestamp DESC LIMIT 1000
+                        ORDER BY e.start_time DESC LIMIT 1000
                     """, (args.auto_tune_thresholds,))
                     values = [row[0] for row in c.fetchall()]
                     conn.close()
@@ -9674,7 +9711,7 @@ Examples:
         
         # Handle resource forecasting (Phase 3 Feature #10)
         if args.forecast_metric or args.predict_sla or args.estimate_capacity:
-            forecaster = ResourceForecaster()
+            forecaster = ResourceForecaster(db_path=args.history_db or 'script_runner_history.db')
             
             if args.forecast_metric:
                 print(f"\n{'='*80}")

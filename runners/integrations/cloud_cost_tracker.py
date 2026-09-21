@@ -471,7 +471,7 @@ class CloudCostTracker:
                 cost = self.azure_calc.estimate_vm_cost(vm_type, duration)
             elif usage.resource_type == ResourceType.STORAGE:
                 storage_gb = usage.metrics.get("storage_gb", 0)
-                cost = self.azure_calc.estimate_storage_cost(storage_gb)
+                cost, _ = self.azure_calc.estimate_storage_cost(storage_gb)
 
         elif usage.provider == CloudProvider.GCP:
             if usage.resource_type == ResourceType.COMPUTE:
@@ -479,7 +479,7 @@ class CloudCostTracker:
                 cost = self.gcp_calc.estimate_compute_engine_cost(machine_type, duration)
             elif usage.resource_type == ResourceType.STORAGE:
                 storage_gb = usage.metrics.get("storage_gb", 0)
-                cost = self.gcp_calc.estimate_storage_cost(storage_gb)
+                cost, _ = self.gcp_calc.estimate_storage_cost(storage_gb)
 
         return cost, {"total": cost}
 

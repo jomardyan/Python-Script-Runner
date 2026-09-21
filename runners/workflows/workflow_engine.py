@@ -408,8 +408,6 @@ class WorkflowExecutor:
     def _eval_condition(self, condition: str, context: Dict[str, Any]) -> bool:
         """Safely evaluate a condition."""
         # Support simple conditions like "task_id.exit_code != 0"
-        import re
-
         pattern = r"(\w+)\.(\w+)\s*(==|!=|<|>|<=|>=)\s*(.+)"
         match = re.match(pattern, condition.strip())
 

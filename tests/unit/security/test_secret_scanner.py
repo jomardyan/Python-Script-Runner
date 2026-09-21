@@ -181,12 +181,16 @@ class TestScanResult:
 class TestVaultIntegration:
     """Test vault integration for secret management."""
     
+    @pytest.mark.skipif(
+        importlib.util.find_spec('boto3') is None,
+        reason='boto3 not installed'
+    )
     @patch('boto3.client')
     def test_aws_secrets_manager_adapter(self, mock_boto):
         """Test AWS Secrets Manager integration."""
         mock_client = MagicMock()
         mock_boto.return_value = mock_client
-        
+
         scanner = SecretScanner(vault_type='aws_secrets_manager')
         # Should not raise
         assert scanner is not None
