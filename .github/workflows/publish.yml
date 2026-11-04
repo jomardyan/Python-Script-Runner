@@ -88,19 +88,18 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.txt pytest pytest-cov
 
       - name: Compile and validate
         run: |
           python -m py_compile runner.py
-          python -m compileall runners/ 2>/dev/null || true
+          python -m compileall -q runners/
           python -c "import runner; print(f'✅ Code compiles: {runner.__version__}')"
       
       - name: Run unit tests
-        continue-on-error: true
         run: |
           if [ -f "pytest.ini" ]; then
-            python -m pytest tests/unit/ -v --tb=short 2>&1 | head -150
+            python -m pytest tests/unit/ --ignore=tests/unit/test_webapi.py --ignore=tests/unit/test_webapi_access.py -v --tb=short
           else
             echo "⚠️ Skipping tests (pytest.ini not configured)"
           fi
@@ -109,8 +108,19 @@ jobs:
         run: |
           python -c "import runner; print(f'✅ Package version: {runner.__version__}')"
 
+  api-tests:
+    needs: validate-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -e ".[dev,dashboard]"
+      - run: python -m pytest tests/unit/test_webapi.py tests/unit/test_webapi_access.py -v --tb=short
+
   build-and-publish:
-    needs: [validate-version, test]
+    needs: [validate-version, test, api-tests]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -172,24 +182,6 @@ jobs:
           twine upload dist/* --verbose
           echo "✅ Published to PyPI"
 
-      - name: Publish to GitHub Packages
-        if: success()
-        continue-on-error: true
-        env:
-          TWINE_REPOSITORY_URL: https://python.pkg.github.com/jomardyan/python-script-runner
-          TWINE_USERNAME: ${{ github.actor }}
-          TWINE_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "🚀 Publishing to GitHub Packages..."
-          echo "Note: GitHub Packages may require additional setup"
-          echo "Repository: https://github.com/jomardyan/Python-Script-Runner/packages"
-          if twine upload dist/* --verbose 2>&1 | grep -q "404"; then
-            echo "⚠️  GitHub Packages: 404 error (may need PAT token)"
-            echo "See: https://github.com/jomardyan/Python-Script-Runner/settings/packages"
-            exit 0
-          fi
-          echo "✅ Published to GitHub Packages"
-
       - name: Create GitHub Release with Assets
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v3
@@ -200,7 +192,6 @@ jobs:
             
             ## Distribution Packages
             - **PyPI**: https://pypi.org/project/python-script-runner/${{ needs.validate-version.outputs.version }}/
-            - **GitHub Packages**: https://github.com/jomardyan/Python-Script-Runner/packages
             
             ## Install
             ```bash
@@ -227,14 +218,12 @@ jobs:
           ║ Tag: ${{ needs.validate-version.outputs.tag_name }}
           ╠════════════════════════════════════════════════════════════╣
           ║ 📦 PyPI Package                                            ║
-          ║ 🐍 GitHub Packages                                         ║
           ║ 📄 GitHub Release                                          ║
           ║ ✅ All systems go!                                        ║
           ╚════════════════════════════════════════════════════════════╝
           
           📍 Package URLs:
           - PyPI: https://pypi.org/project/python-script-runner/${{ needs.validate-version.outputs.version }}/
-          - GitHub Packages: https://github.com/jomardyan/Python-Script-Runner/packages
           - Release: https://github.com/jomardyan/Python-Script-Runner/releases/tag/${{ needs.validate-version.outputs.tag_name }}
           
           🚀 Install with: pip install python-script-runner==${{ needs.validate-version.outputs.version }}

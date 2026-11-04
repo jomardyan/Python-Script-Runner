@@ -6,6 +6,8 @@ on:
       - main
     paths:
       - '**.py'
+      - 'requirements*.txt'
+      - 'pyproject.toml'
       - 'docker-compose.yml'
       - '.github/workflows/integration.yml'
   pull_request:
@@ -140,9 +142,9 @@ jobs:
           curl --fail --silent --show-error http://127.0.0.1:9000/api/system/status | python -m json.tool
           echo ""
           
-          # Test templates endpoint
-          echo "📦 Testing /api/templates endpoint..."
-          curl --fail --silent --show-error http://127.0.0.1:9000/api/templates | python -m json.tool
+          # Script-library discovery is the API route; templates are CLI scaffolds.
+          echo "📦 Testing /api/library/stats endpoint..."
+          curl --fail --silent --show-error http://127.0.0.1:9000/api/library/stats | python -m json.tool
           echo ""
           
           # Test runs endpoint
@@ -177,7 +179,7 @@ jobs:
 
       - name: Verify Docker image
         run: |
-          docker run --rm python-script-runner:test python runner.py --help | head -20
+          docker run --rm python-script-runner:test python runner.py --help
 
       - name: Test Docker runtime
         run: |
@@ -226,20 +228,14 @@ jobs:
                   script_path = template_dir / 'script.py'
                   template_path = template_dir / 'template.json'
                   
-                  if script_path.exists():
-                      print(f'  ✅ script.py found')
-                  else:
-                      print(f'  ⚠️ script.py missing')
-                  
-                  if template_path.exists():
-                      try:
-                          with open(template_path) as f:
-                              template_config = json.load(f)
-                          print(f'  ✅ template.json valid')
-                      except json.JSONDecodeError as e:
-                          print(f'  ❌ template.json invalid: {e}')
-                  else:
-                      print(f'  ⚠️ template.json missing')
+                  assert script_path.is_file(), f'Missing script: {script_path}'
+                  assert template_path.is_file(), f'Missing metadata: {template_path}'
+                  with template_path.open(encoding='utf-8') as f:
+                      template_config = json.load(f)
+                  from runners.templates.template_manager import TemplateMetadata
+                  metadata = TemplateMetadata(**template_config)
+                  compile(script_path.read_text(encoding='utf-8'), str(script_path), 'exec')
+                  print(f'  ✅ valid script and metadata: {metadata.name}')
           "
 
   subpackage-tests:
@@ -329,3 +325,6 @@ jobs:
           echo "═══════════════════════════════════════════"
           echo "✨ Integration tests completed"
 
+          python -c "import json, os; results=json.loads(os.environ['JOB_RESULTS']); failed=[name for name, job in results.items() if job['result'] != 'success']; print('Unsuccessful jobs:', failed); raise SystemExit(bool(failed))"
+        env:
+          JOB_RESULTS: ${{ toJSON(needs) }}

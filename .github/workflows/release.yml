@@ -51,7 +51,9 @@ jobs:
       - name: Commit version changes
         run: |
           git add pyproject.toml runner.py
-          git commit -m "Bump version to ${{ steps.bump.outputs.new_version }}" || true
+          if ! git diff --cached --quiet; then
+            git commit -m "Bump version to ${{ steps.bump.outputs.new_version }}"
+          fi
       
       - name: Create and push tag
         run: |
@@ -96,20 +98,19 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-cov
+          pip install -e ".[dev,dashboard]"
       
       - name: Compile and validate
         run: |
           python -m py_compile runner.py
-          python -m compileall runners/ 2>/dev/null || true
+          python -m compileall -q runners/
           python -c "import runner; print(f'✅ Core compiles: {runner.__version__}')"
           python -c "from runners.workflows import workflow_engine; print('✅ Subpackages OK')"
       
       - name: Run unit tests
-        continue-on-error: true
         run: |
           if [ -f "pytest.ini" ]; then
-            python -m pytest tests/unit/ -v --tb=short 2>&1 | head -150
+            python -m pytest tests/unit/ -v --tb=short
             echo "Unit tests completed"
           else
             echo "⚠️ No tests configured (pytest.ini not found)"
@@ -131,7 +132,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip setuptools
-          pip install -r requirements.txt 2>&1 | grep -v "already satisfied" || true
+          pip install -r requirements.txt
       
       - name: Create Python3 bundle
         run: |
@@ -444,7 +445,7 @@ jobs:
           cat > "$DEBIAN_DIR/postinst" << 'POSTINST'
           #!/bin/bash
           set -e
-          python3 -m pip install -q psutil pyyaml requests 2>/dev/null || true
+          # Runtime dependencies are declared in control and installed by APT.
           POSTINST
           chmod +x "$DEBIAN_DIR/postinst"
           
@@ -471,7 +472,7 @@ jobs:
           DEB_FILE="dist/linux/python-script-runner_${VERSION}_all.deb"
           
           echo "Verifying DEB package..."
-          dpkg-deb -c "$DEB_FILE" | head -20
+          dpkg-deb -c "$DEB_FILE"
           dpkg-deb -c "$DEB_FILE" | tail -5
       
       - name: Calculate Linux checksum
@@ -541,7 +542,7 @@ jobs:
           pypy3 -m pip install -r requirements.txt
           
           # Try to install optional PyPy3-specific optimizations
-          pypy3 -m pip install -r requirements-pypy3.txt 2>/dev/null || true
+          pypy3 -m pip install -r requirements-pypy3.txt
           
           chmod +x runner.py
           echo "✅ Installation complete!"
