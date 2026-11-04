@@ -10,7 +10,7 @@ PyYAML>=6.0
 # Dashboard Backend
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
-python-multipart==0.0.6
+python-multipart==0.0.31
 websockets==12.0
 
 # Optional Dependencies (can be commented out if not needed)
