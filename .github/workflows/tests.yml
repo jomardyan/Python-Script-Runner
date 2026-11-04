@@ -94,7 +94,7 @@ jobs:
 
       - name: Run unit tests
         run: |
-          python -m pytest tests/unit/ --ignore=tests/unit/test_webapi.py --ignore=tests/unit/test_webapi_access.py -v --tb=short --cov=runner --cov=runners
+          python -m pytest tests/unit/ --ignore=tests/unit/test_webapi.py --ignore=tests/unit/test_webapi_access.py --ignore=tests/unit/test_webapi_security.py -v --tb=short --cov=runner --cov=runners
 
       - name: Run integration tests
         if: matrix.os == 'ubuntu-latest'
@@ -147,7 +147,7 @@ jobs:
           "
 
       - name: Run API lifecycle and access-control regressions
-        run: python -m pytest tests/unit/test_webapi.py tests/unit/test_webapi_access.py -v --tb=short
+        run: python -m pytest tests/unit/test_webapi.py tests/unit/test_webapi_access.py tests/unit/test_webapi_security.py -v --tb=short
 
   docker-build:
     runs-on: ubuntu-latest
