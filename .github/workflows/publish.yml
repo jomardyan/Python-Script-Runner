@@ -98,11 +98,7 @@ jobs:
       
       - name: Run unit tests
         run: |
-          if [ -f "pytest.ini" ]; then
-            python -m pytest tests/unit/ --ignore=tests/unit/test_webapi.py --ignore=tests/unit/test_webapi_access.py --ignore=tests/unit/test_webapi_security.py -v --tb=short
-          else
-            echo "⚠️ Skipping tests (pytest.ini not configured)"
-          fi
+          python -m pytest tests/unit/ --ignore=tests/unit/test_webapi.py --ignore=tests/unit/test_webapi_access.py --ignore=tests/unit/test_webapi_security.py -v --tb=short
 
       - name: Validate package import
         run: |

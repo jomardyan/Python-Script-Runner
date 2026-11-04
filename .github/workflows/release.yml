@@ -109,12 +109,7 @@ jobs:
       
       - name: Run unit tests
         run: |
-          if [ -f "pytest.ini" ]; then
-            python -m pytest tests/unit/ -v --tb=short
-            echo "Unit tests completed"
-          else
-            echo "⚠️ No tests configured (pytest.ini not found)"
-          fi
+          python -m pytest tests/unit/ -v --tb=short
 
   build-python3:
     needs: test
