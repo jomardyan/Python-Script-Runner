@@ -86,11 +86,13 @@ setup(
     install_requires=[
         "psutil>=5.9.0",
         "pyyaml>=6.0",
-        "requests>=2.31.0",
+        "requests>=2.32.4; python_version < '3.10'",
+        "requests>=2.33.0; python_version >= '3.10'",
     ],
     extras_require={
         "dashboard": [
             "fastapi>=0.104.0",
+            "python-multipart>=0.0.31",
             "uvicorn[standard]>=0.24.0",
             "websockets>=12.0",
         ],

@@ -454,6 +454,7 @@ class CloudCostTracker:
     ) -> Tuple[float, Dict[str, float]]:
         """Calculate cost for resource usage."""
         cost = 0.0
+        duration = usage.metrics.get("hours", duration)
         
         if usage.provider == CloudProvider.AWS:
             if usage.resource_type == ResourceType.COMPUTE:

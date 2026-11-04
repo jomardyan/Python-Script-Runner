@@ -179,3 +179,7 @@ python -m pytest tests/unit/test_webapi.py -v
 - For production, run with `uvicorn WEBAPI.api:app --host 0.0.0.0 --port 9000 --workers 2 --log-level info`
 - Health: `GET /api/health`; Metrics/log review: `GET /api/runs`, `GET /api/runs/{id}/logs`
 
+
+## Web API access controls
+
+The bundled CLI and `WEBAPI/serve.sh` bind to `127.0.0.1` by default. Running scripts is a trusted operation: an uploaded Python file executes with the server account permissions. For remote access or a reverse proxy, set a strong `WEBAPI_API_KEY` in the server environment and send `Authorization: Bearer <key>` on API requests. `/api/health` stays public. Cross-origin browser API requests are rejected. The bundled dashboard currently supports local operation without a configured key; remote clients must supply the bearer header. Never expose a remote binding without authentication and TLS at the proxy. The launch helper reports port conflicts without killing the process already using the port.

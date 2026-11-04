@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import ipaddress
 import json
 import os
 import re
+import secrets
 import shutil
 import sqlite3
 import subprocess
@@ -21,9 +23,10 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, UploadFile, File, Form, Body
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, UploadFile, File, Form, Body, Request
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -823,6 +826,40 @@ class ScriptLibrary:
 
 
 app = FastAPI(title="Script Runner Web API", version="1.4.0")
+
+
+@app.middleware("http")
+async def protect_api(request: Request, call_next):
+    """Keep browser origins and optional remote API credentials at the boundary."""
+    if request.url.path.startswith("/api/"):
+        origin = request.headers.get("origin")
+        if origin is not None:
+            parsed = urlparse(origin)
+            if parsed.scheme not in {"http", "https"} or parsed.netloc.lower() != request.headers.get("host", "").lower():
+                return JSONResponse({"detail": "Cross-origin API requests are not permitted"}, status_code=403)
+        expected = os.environ.get("WEBAPI_API_KEY", "")
+        if not expected and request.url.path != "/api/health":
+            try:
+                host = urlparse("http://" + request.headers.get("host", "")).hostname
+                local_host = host == "localhost" or (host is not None and ipaddress.ip_address(host).is_loopback)
+            except ValueError:
+                local_host = False
+            if not local_host:
+                return JSONResponse({"detail": "Local API requires a localhost or loopback Host"}, status_code=403)
+            try:
+                local = request.client is not None and ipaddress.ip_address(request.client.host).is_loopback
+            except ValueError:
+                local = False
+            if not local:
+                return JSONResponse({"detail": "Remote API access requires WEBAPI_API_KEY"}, status_code=503)
+        if expected and request.url.path != "/api/health":
+            supplied = request.headers.get("authorization", "")
+            token = supplied[7:] if supplied.startswith("Bearer ") else ""
+            if not secrets.compare_digest(token.encode("utf-8"), expected.encode("utf-8")):
+                return JSONResponse({"detail": "Authentication required"}, status_code=401,
+                                    headers={"WWW-Authenticate": "Bearer"})
+    return await call_next(request)
+
 
 RUNS: Dict[str, RunRecord] = {}
 RUNS_LOCK = threading.Lock()
@@ -2213,7 +2250,7 @@ if __name__ == "__main__":
     import uvicorn
 
     parser = argparse.ArgumentParser(description="Start the Script Runner Web API server")
-    parser.add_argument("--host", default="0.0.0.0", help="Host interface to bind")
+    parser.add_argument("--host", default="127.0.0.1", help="Host interface to bind (default: loopback)")
     parser.add_argument("--port", type=int, default=9000, help="Port to listen on")
     args = parser.parse_args()
 

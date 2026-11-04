@@ -528,3 +528,11 @@ pytest tests/unit/ -v
 
 MIT License - See LICENSE file for details
 
+
+## Web API access controls
+
+The bundled CLI and `WEBAPI/serve.sh` bind to `127.0.0.1` by default. Running scripts is a trusted operation: an uploaded Python file executes with the server account permissions. For remote access or a reverse proxy, set a strong `WEBAPI_API_KEY` in the server environment and send `Authorization: Bearer <key>` on API requests. `/api/health` stays public. Cross-origin browser API requests are rejected. The bundled dashboard currently supports local operation without a configured key; remote clients must supply the bearer header. Never expose a remote binding without authentication and TLS at the proxy. The launch helper reports port conflicts without killing the process already using the port.
+
+The Makefile provides install, dev, test, lint, build, clean, package and security entry points. Packaging requires `python -m pip install build`. The required quality workflow runs unit tests with their full exit status, dependency auditing and source/wheel builds; no package publication is triggered by normal branch pushes. The cost tracker now honors explicitly recorded resource hours.
+
+Requests2.33 requires Python3.10. Dependency markers retain the patched Requests2.32.4 floor on older interpreters; the remaining advisory for `extract_zipped_paths()` affects a helper this project does not call. Current CI validates Python3.11. Older advertised Python versions are not newly certified by this audit.

@@ -115,7 +115,12 @@ class TestPathValidation:
         real_file = tmp_path / "real.py"
         real_file.write_text("print('hello')")
         link = tmp_path / "link.py"
-        link.symlink_to(real_file)
+        try:
+            link.symlink_to(real_file)
+        except OSError as exc:
+            if getattr(exc, "winerror", None) == 1314:
+                pytest.skip("Windows account lacks symbolic link creation privileges")
+            raise
 
         # The symlink check happens before resolve(), so the symlink is
         # detected and rejected with a clear error message.

@@ -282,7 +282,7 @@ class TestCostTrackerIntegration:
         result = tracker.get_result()
         
         assert result.success
-        assert result.total_estimated_cost_usd > 0
+        assert result.total_estimated_cost_usd == pytest.approx(0.0208)
         assert result.tags['environment'] == 'test'
 
 

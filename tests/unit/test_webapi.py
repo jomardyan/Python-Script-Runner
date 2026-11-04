@@ -65,7 +65,7 @@ def _fresh_db(tmp_path: Path) -> None:
 @pytest.fixture()
 def client(tmp_path):
     _fresh_db(tmp_path)
-    return TestClient(_api_module.app)
+    return TestClient(_api_module.app, client=("127.0.0.1", 50000), base_url="http://localhost")
 
 
 @pytest.fixture()

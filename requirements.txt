@@ -5,7 +5,8 @@
 # Core Dependencies (required)
 psutil==5.9.7
 pyyaml==6.0.1
-requests==2.31.0
+requests==2.32.4; python_version < '3.10'
+requests==2.33.0; python_version >= '3.10'
 
 # Optional: Data Export & Advanced Features
 # Uncomment to enable: pip install pyarrow scikit-learn
