@@ -17,6 +17,8 @@ jobs:
   e2e-tests:
     runs-on: ubuntu-latest
     name: End-to-End Tests
+    env:
+      RUN_INTEGRATION: "1"
     
     services:
       # Placeholder for any external services needed
@@ -44,13 +46,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-asyncio 2>/dev/null || pip install pytest
+          pip install pytest pytest-asyncio
 
       - name: Run end-to-end tests
-        continue-on-error: true
         run: |
           if [ -d "tests/integration/test_end_to_end.py" ]; then
-            python -m pytest tests/integration/test_end_to_end.py -v --tb=short 2>&1 | head -150
+            python -m pytest tests/integration/test_end_to_end.py -v --tb=short
           elif [ -f "tests/integration/test_end_to_end.py" ]; then
             python -m pytest tests/integration/test_end_to_end.py -v --tb=short
           else
@@ -75,13 +76,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest 2>/dev/null || true
+          pip install pytest
 
       - name: Test runner integration
-        continue-on-error: true
         run: |
           if [ -f "tests/integration/test_runner_integration.py" ]; then
-            python -m pytest tests/integration/test_runner_integration.py -v --tb=short 2>&1 | head -150
+            python -m pytest tests/integration/test_runner_integration.py -v --tb=short
           else
             echo "No runner integration tests found"
           fi
@@ -109,52 +109,51 @@ jobs:
       - name: Start WebAPI service
         run: |
           cd WEBAPI
-          nohup python -m uvicorn api:app --host 0.0.0.0 --port 9000 > webapi.log 2>&1 &
+          nohup python -m uvicorn api:app --host 127.0.0.1 --port 9000 > webapi.log 2>&1 &
           WEB_PID=$!
           echo "WebAPI PID: $WEB_PID"
           
           # Wait for service to be ready
           for i in {1..30}; do
-            if curl -s http://localhost:9000/api/stats > /dev/null 2>&1; then
+            if curl --fail --silent --show-error http://127.0.0.1:9000/api/stats > /dev/null 2>&1; then
               echo "✅ WebAPI is ready"
               break
             fi
             echo "Waiting for WebAPI... ($i/30)"
             sleep 1
           done
+          curl --fail --silent --show-error http://127.0.0.1:9000/api/stats > /dev/null
         timeout-minutes: 2
 
       - name: Test WebAPI endpoints
-        continue-on-error: true
         run: |
           echo "Testing WebAPI endpoints..."
           echo ""
           
           # Test stats endpoint
           echo "📊 Testing /api/stats endpoint..."
-          curl -s http://localhost:9000/api/stats | python -m json.tool || echo "⚠️ Stats endpoint failed"
+          curl --fail --silent --show-error http://127.0.0.1:9000/api/stats | python -m json.tool
           echo ""
           
           # Test system status endpoint
           echo "🖥️ Testing /api/system/status endpoint..."
-          curl -s http://localhost:9000/api/system/status | python -m json.tool || echo "⚠️ System status endpoint failed"
+          curl --fail --silent --show-error http://127.0.0.1:9000/api/system/status | python -m json.tool
           echo ""
           
           # Test templates endpoint
           echo "📦 Testing /api/templates endpoint..."
-          curl -s http://localhost:9000/api/templates | python -m json.tool || echo "⚠️ Templates endpoint failed"
+          curl --fail --silent --show-error http://127.0.0.1:9000/api/templates | python -m json.tool
           echo ""
           
           # Test runs endpoint
           echo "▶️ Testing /api/runs endpoint..."
-          curl -s http://localhost:9000/api/runs | python -m json.tool || echo "⚠️ Runs endpoint failed"
+          curl --fail --silent --show-error http://127.0.0.1:9000/api/runs | python -m json.tool
           echo ""
           
           echo "✅ WebAPI integration tests completed"
       
       - name: Debug WebAPI logs
         if: always()
-        continue-on-error: true
         run: |
           if [ -f "WEBAPI/webapi.log" ]; then
             echo "📋 WebAPI logs:"
@@ -181,7 +180,6 @@ jobs:
           docker run --rm python-script-runner:test python runner.py --help | head -20
 
       - name: Test Docker runtime
-        continue-on-error: true
         run: |
           docker run --rm python-script-runner:test python -c "
           import runner
@@ -262,10 +260,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest 2>/dev/null || true
+          pip install pytest
 
       - name: Test workflows module
-        continue-on-error: true
         run: |
           python -c "
           from runners.workflows import workflow_engine, workflow_parser
@@ -273,11 +270,10 @@ jobs:
           "
           
           if [ -f "tests/unit/workflows/test_workflow_engine.py" ]; then
-            python -m pytest tests/unit/workflows/ -v --tb=short 2>&1 | head -100
+            python -m pytest tests/unit/workflows/ -v --tb=short
           fi
 
       - name: Test scanners module
-        continue-on-error: true
         run: |
           python -c "
           from runners.scanners import code_analyzer, dependency_scanner
@@ -285,11 +281,10 @@ jobs:
           "
           
           if [ -f "tests/unit/scanners/test_code_analyzer.py" ]; then
-            python -m pytest tests/unit/scanners/ -v --tb=short 2>&1 | head -100
+            python -m pytest tests/unit/scanners/ -v --tb=short
           fi
 
       - name: Test security module
-        continue-on-error: true
         run: |
           python -c "
           from runners.security import secret_scanner
@@ -297,11 +292,10 @@ jobs:
           "
           
           if [ -f "tests/unit/security/test_secret_scanner.py" ]; then
-            python -m pytest tests/unit/security/ -v --tb=short 2>&1 | head -100
+            python -m pytest tests/unit/security/ -v --tb=short
           fi
 
       - name: Test profilers module
-        continue-on-error: true
         run: |
           python -c "
           from runners.profilers import performance_profiler
@@ -309,7 +303,6 @@ jobs:
           "
 
       - name: Test integrations module
-        continue-on-error: true
         run: |
           python -c "
           from runners.integrations import cloud_cost_tracker

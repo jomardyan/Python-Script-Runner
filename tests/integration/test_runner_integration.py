@@ -160,17 +160,18 @@ class TestComplexWorkflows:
     
     def test_sequential_script_execution(self, tmp_path):
         """Test executing multiple scripts sequentially"""
+        state_path = str(tmp_path / "workflow_state.txt")
         script1 = tmp_path / "step1.py"
-        script1.write_text("""
-with open('/tmp/workflow_state.txt', 'w') as f:
+        script1.write_text(f"""
+with open({state_path!r}, 'w') as f:
     f.write('step1_complete')
 print("Step 1 complete")
 exit(0)
 """)
         
         script2 = tmp_path / "step2.py"
-        script2.write_text("""
-with open('/tmp/workflow_state.txt', 'r') as f:
+        script2.write_text(f"""
+with open({state_path!r}, 'r') as f:
     state = f.read()
 if state == 'step1_complete':
     print("Step 2 received state from step 1")
@@ -180,11 +181,6 @@ else:
     exit(1)
 """)
         
-        # Clean up state file
-        try:
-            os.remove('/tmp/workflow_state.txt')
-        except OSError:
-            pass
         
         # Execute scripts
         runner1 = ScriptRunner(str(script1), enable_history=False)

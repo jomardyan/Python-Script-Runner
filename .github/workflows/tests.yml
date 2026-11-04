@@ -40,23 +40,18 @@ jobs:
       - name: Install linting tools
         run: |
           python -m pip install --upgrade pip
-          pip install pylint flake8 2>/dev/null || echo "Linting tools optional"
+          pip install flake8
 
       - name: Lint runner.py
-        continue-on-error: true
         run: |
-          if command -v pylint &> /dev/null; then
-            pylint runner.py --disable=all --enable=E 2>/dev/null || true
-          fi
           if command -v flake8 &> /dev/null; then
-            flake8 runner.py --count --select=E9,F63,F7,F82 --show-source 2>/dev/null || true
+            flake8 runner.py --count --select=E9,F63,F7,F82 --show-source
           fi
 
       - name: Lint runners/ subpackages
-        continue-on-error: true
         run: |
           if command -v flake8 &> /dev/null; then
-            flake8 runners/ --count --select=E9,F63,F7,F82 --show-source 2>/dev/null || true
+            flake8 runners/ --count --select=E9,F63,F7,F82 --show-source
           fi
 
   unit-tests:
@@ -84,7 +79,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-cov || pip install pytest
+          pip install pytest pytest-cov
 
       - name: Verify package structure
         run: |
@@ -96,20 +91,18 @@ jobs:
           python -c "from runners.integrations import cloud_cost_tracker; print('✅ Integrations')"
 
       - name: Run unit tests
-        continue-on-error: true
         run: |
           if [ -f "pytest.ini" ]; then
-            python -m pytest tests/unit/ -v --tb=short --cov=runner --cov=runners 2>&1 | head -200
+            python -m pytest tests/unit/ -v --tb=short --cov=runner --cov=runners
           else
             echo "⚠️ No pytest.ini found"
           fi
 
       - name: Run integration tests
-        continue-on-error: true
         if: matrix.os == 'ubuntu-latest'
         run: |
           if [ -d "tests/integration" ]; then
-            python -m pytest tests/integration/ -v --tb=short 2>&1 | head -100 || true
+            python -m pytest tests/integration/ -v --tb=short
           fi
 
   api-tests:
@@ -181,24 +174,11 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install security tools
-        run: |
-          pip install bandit safety 2>/dev/null || echo "Security tools optional"
+      - name: Install dependency audit tool
+        run: python -m pip install pip-audit
 
-      - name: Run Bandit on runner.py
-        continue-on-error: true
-        run: |
-          if command -v bandit &> /dev/null; then
-            bandit runner.py -f json -o /tmp/bandit.json 2>/dev/null || true
-            echo "Bandit scan completed"
-          fi
-
-      - name: Check dependencies
-        continue-on-error: true
-        run: |
-          if command -v safety &> /dev/null; then
-            safety check --json 2>/dev/null || echo "Safety check completed with warnings"
-          fi
+      - name: Audit pinned production dependencies
+        run: python -m pip_audit -r requirements.txt
 
   performance-check:
     runs-on: ubuntu-latest
@@ -217,13 +197,12 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.txt pytest pytest-benchmark
 
       - name: Run performance tests
-        continue-on-error: true
         run: |
           if [ -d "tests/performance" ]; then
-            python -m pytest tests/performance/ -v --tb=short 2>&1 | head -100 || true
+            python -m pytest tests/performance/ -v --tb=short
           fi
 
   compatibility-check:
