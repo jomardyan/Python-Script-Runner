@@ -137,7 +137,7 @@ jobs:
           cp requirements.txt dist/python3-runner/
           cp LICENSE dist/python3-runner/
           cp README.md dist/python3-runner/
-          cp config.example.yaml dist/python3-runner/ || true
+          cp config.example.yaml dist/python3-runner/
           
           # Create setup script
           cat > dist/python3-runner/INSTALL.sh << 'EOF'
@@ -262,7 +262,7 @@ jobs:
           
           # Debug: List current directory
           echo "Files in current directory:"
-          ls -la | head -20
+          ls -la | sed -n '1,20p'
           
           # Check if runner.spec exists
           if [ ! -f "runner.spec" ]; then
@@ -309,7 +309,7 @@ jobs:
           cp dist/windows/dist/python-script-runner.exe "$PKG_DIR/"
           cp LICENSE "$PKG_DIR/"
           cp README.md "$PKG_DIR/"
-          cp config.example.yaml "$PKG_DIR/" || true
+          cp config.example.yaml "$PKG_DIR/"
           
           cat > "$PKG_DIR/WINDOWS_README.md" << 'EOF'
           # Python Script Runner - Windows Executable
@@ -409,7 +409,7 @@ jobs:
           cp requirements.txt "$PKG_DIR/usr/lib/python-script-runner/"
           cp LICENSE "$PKG_DIR/usr/share/doc/python-script-runner/copyright"
           cp README.md "$PKG_DIR/usr/share/doc/python-script-runner/"
-          cp config.example.yaml "$PKG_DIR/usr/lib/python-script-runner/" || true
+          cp config.example.yaml "$PKG_DIR/usr/lib/python-script-runner/"
           
           cat > "$PKG_DIR/usr/bin/python-script-runner" << 'WRAPPER'
           #!/bin/bash
@@ -509,10 +509,10 @@ jobs:
           cp runner.py dist/pypy3-runner/
           cp -r runners dist/pypy3-runner/runners
           cp requirements.txt dist/pypy3-runner/
-          cp requirements-pypy3.txt dist/pypy3-runner/ || true
+          cp requirements-pypy3.txt dist/pypy3-runner/
           cp LICENSE dist/pypy3-runner/
           cp README.md dist/pypy3-runner/
-          cp config.example.yaml dist/pypy3-runner/ || true
+          cp config.example.yaml dist/pypy3-runner/
           
           # Create setup script for PyPy3
           cat > dist/pypy3-runner/INSTALL.sh << 'EOF'
@@ -649,7 +649,7 @@ jobs:
             while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
               git fetch origin --tags --force
               # Get the most recently created tag
-              TAG=$(git tag --sort=-creatordate --list 'v*.*.*' | head -1)
+              TAG=$(git tag --sort=-creatordate --list 'v*.*.*' | sed -n '1p')
               if [ -n "$TAG" ]; then
                 VERSION=${TAG#v}
                 echo "✅ Tag found: $TAG"
@@ -697,7 +697,7 @@ jobs:
           # Append any individual .sha256 files to the combined checksum
           for f in *.sha256; do
             if [ -f "$f" ]; then
-              cat "$f" >> SHA256SUMS.txt 2>/dev/null || true
+              cat "$f" >> SHA256SUMS.txt
             fi
           done
           cat SHA256SUMS.txt
