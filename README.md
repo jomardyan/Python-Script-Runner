@@ -542,3 +542,8 @@ The manual workflow-history maintenance action previews completed runs by defaul
 Requests2.33 requires Python3.10. Dependency markers retain the patched Requests2.32.4 floor on older interpreters; the remaining advisory for `extract_zipped_paths()` affects a helper this project does not call. Current CI validates Python3.11. Older advertised Python versions are not newly certified by this audit.
 
 Core tests run on Python 3.8–3.12 across Linux, Windows and macOS. The API lifecycle, access-control and path/environment security modules run separately, with the dashboard dependencies installed, on Python 3.11 and 3.12 across the same three systems; they are not silently skipped when optional dependencies are absent. Integration checks exercise the actual script-library route and validate every template's script and metadata. All test and integration summary jobs fail if any required job fails or is cancelled. Release/publishing gates also retain test failures. Python distributions publish to PyPI and GitHub release assets: GitHub Packages does not provide a Python/PyPI registry.
+
+## Copyright
+
+Copyright (c) 2026 Hayk Jomardyan - Lolisoft.
+See COPYRIGHT.md for attribution and existing license notices.
