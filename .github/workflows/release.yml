@@ -31,7 +31,7 @@ jobs:
           fetch-depth: 0
       
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
       
@@ -47,8 +47,6 @@ jobs:
           NEW_VERSION=$(bash version.sh current)
           echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
           echo "Version bumped to: $NEW_VERSION"
-        env:
-          RELEASE_VERSION: ${{ steps.bump.outputs.new_version || github.event.inputs.bump_type }}
       
       - name: Commit version changes
         run: |
@@ -90,7 +88,7 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
       
@@ -125,7 +123,7 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Set up Python 3.11
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -229,7 +227,7 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Set up Python 3.11
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -374,7 +372,7 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Set up Python 3.11
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -500,7 +498,7 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Set up PyPy 3.10
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v7
         with:
           python-version: 'pypy-3.10'
       
@@ -806,7 +804,7 @@ jobs:
           cat release/RELEASE_NOTES.md
       
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           files: |
