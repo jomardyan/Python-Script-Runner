@@ -73,9 +73,13 @@ py-modules = ["runner"]
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["runners*"]
+exclude = ["*.__pycache__", "*.__pycache__.*"]
 
 [tool.setuptools.package-data]
 "runners" = ["templates/**"]
+
+[tool.setuptools.exclude-package-data]
+"*" = ["__pycache__/*", "**/__pycache__/*", "*.py[cod]", "**/*.py[cod]"]
 
 [tool.black]
 line-length = 120

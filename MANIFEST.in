@@ -1,0 +1,2 @@
+# Generated interpreter caches are not source distribution inputs.
+global-exclude *.pyc *.pyo

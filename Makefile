@@ -47,7 +47,7 @@ test: ## Run focused unit tests with the selected interpreter
 	"$(PYTHON)" -m pytest tests/unit -q
 
 lint: ## Compile-check owned Python application modules
-	"$(PYTHON)" -m compileall -q runner.py runners WEBAPI
+	"$(PYTHON)" tools/make_python.py
 
 check: ## Run compile checks and unit tests
 	"$(MAKE)" lint
